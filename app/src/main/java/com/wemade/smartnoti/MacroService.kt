@@ -138,6 +138,12 @@ class MacroService : NotificationListenerService() {
             val extras = sbn.notification.extras
             NotificationPeek(
                 packageName = sbn.packageName,
+                // 패키지명은 정확하지만 읽히지 않는다. 화면에는 사람이 부르는 이름을 쓴다
+                appLabel = runCatching {
+                    packageManager.getApplicationLabel(
+                        packageManager.getApplicationInfo(sbn.packageName, 0)
+                    ).toString()
+                }.getOrDefault(""),
                 title = extras.getCharSequence("android.title")?.toString().orEmpty(),
                 text = sbn.allTexts().drop(1).joinToString(" / "),
                 clearable = sbn.isClearable

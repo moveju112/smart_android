@@ -33,11 +33,14 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
@@ -96,6 +99,8 @@ fun EditScreen(macro: Macro, onSave: (Macro) -> Unit, onDelete: () -> Unit, onCa
         )
     }
 
+    var menuOpen by remember { mutableStateOf(false) }
+
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
@@ -106,38 +111,61 @@ fun EditScreen(macro: Macro, onSave: (Macro) -> Unit, onDelete: () -> Unit, onCa
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "뒤로")
                     }
                 },
-                actions = { TextButton(onClick = { onSave(collect()) }) { Text("저장") } }
+                actions = {
+                    TextButton(onClick = { onSave(collect()) }) { Text("저장") }
+                    // 방식 바꾸기는 한 번 정하면 다시 볼 일이 없다. 눈에서 치워 메뉴에 둔다
+                    IconButton(onClick = { menuOpen = true }) {
+                        Icon(Icons.Default.MoreVert, contentDescription = "더 보기")
+                    }
+                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                        if (simple) {
+                            DropdownMenuItem(
+                                text = { Text("단계를 직접 짜기") },
+                                onClick = {
+                                    menuOpen = false
+                                    draft = draft.withClearRule(rule); simple = false
+                                }
+                            )
+                        } else {
+                            DropdownMenuItem(
+                                text = { Text("알림 지우기로 보기") },
+                                enabled = draft.asClearRule() != null,
+                                onClick = {
+                                    menuOpen = false
+                                    rule = draft.asClearRule() ?: rule; simple = true
+                                }
+                            )
+                        }
+                    }
+                }
             )
         }
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.TopCenter) {
             LazyColumn(
                 modifier = Modifier.widthIn(max = 720.dp).fillMaxSize(),
-                contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = 4.dp, bottom = 32.dp),
+                contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 32.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                item {
-                    HeaderCard(
-                        name = draft.name,
-                        summary = collect().oneLine(),
-                        onName = { draft = draft.copy(name = it) }
-                    )
-                }
-
-                item {
-                    ModeSwitch(
-                        simple = simple,
-                        // 단계를 직접 엮어 둔 매크로는 한 장짜리 화면으로 접을 수 없다
-                        simpleAvailable = simple || draft.asClearRule() != null,
-                        onSimple = { rule = draft.asClearRule() ?: rule; simple = true },
-                        onAdvanced = { draft = draft.withClearRule(rule); simple = false }
-                    )
-                }
-
+                // 무엇을 만드는 중인지가 화면에 들어와서 첫 번째로 읽힌다
                 if (simple) {
                     clearRuleSections(rule) { rule = it }
                 } else {
                     advancedSections(draft) { draft = it }
+                }
+
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+                        OutlinedTextField(
+                            value = draft.name,
+                            onValueChange = { draft = draft.copy(name = it) },
+                            label = { Text("이름") },
+                            supportingText = { Text("목록에서 이 이름으로 찾습니다") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
                 }
 
                 item {
@@ -159,43 +187,11 @@ fun EditScreen(macro: Macro, onSave: (Macro) -> Unit, onDelete: () -> Unit, onCa
                     // 저장은 맨 위에 늘 떠 있다. 여기까지 내려와야 하는 것은 지우기뿐이다
                     OutlinedButton(
                         onClick = { confirmDelete = true },
-                        modifier = Modifier.fillMaxWidth().padding(top = 6.dp)
+                        modifier = Modifier.fillMaxWidth()
                     ) {
                         Text("이 매크로 지우기", color = MaterialTheme.colorScheme.error)
                     }
                 }
-            }
-        }
-    }
-}
-
-/**
- * 이름과, 지금 설정이 무엇을 하는지 한 줄.
- * 아래에서 무엇을 만지든 결과가 여기에 바로 비쳐서, 저장하기 전에 확인할 수 있다.
- */
-@Composable
-private fun HeaderCard(name: String, summary: String, onName: (String) -> Unit) {
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            OutlinedTextField(
-                value = name,
-                onValueChange = onName,
-                label = { Text("이름") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    "하는 일",
-                    style = MonoSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(Modifier.width(10.dp))
-                Text(
-                    summary,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.primary
-                )
             }
         }
     }
@@ -215,24 +211,10 @@ private fun ClearAllWarning(packageName: String, text: String) {
         Text("주의", style = MonoSmall, color = scheme.onErrorContainer)
         Spacer(Modifier.width(10.dp))
         Text(
-            "지금 설정으로는 모든 앱의 알림이 전부 지워집니다.",
+            "이대로 두면 모든 앱의 알림이 전부 지워집니다. 위에서 앱이나 문구를 정해 주세요.",
             style = MaterialTheme.typography.bodySmall,
             color = scheme.onErrorContainer
         )
-    }
-}
-
-/** 어느 방식으로 다룰지. 고른 쪽이 채워져 한눈에 보인다 */
-@Composable
-private fun ModeSwitch(
-    simple: Boolean,
-    simpleAvailable: Boolean,
-    onSimple: () -> Unit,
-    onAdvanced: () -> Unit
-) {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        ChoiceChip("알림 지우기", simple, Modifier.weight(1f), enabled = simpleAvailable, onClick = onSimple)
-        ChoiceChip("직접 짜기", !simple, Modifier.weight(1f), onClick = onAdvanced)
     }
 }
 
@@ -261,51 +243,41 @@ private fun ChoiceChip(
     )
 }
 
-// ─────────────────────────── 알림 지우기 (간단) ───────────────────────────
+// ─────────────────────────── 알림 지우기 (문장) ───────────────────────────
 
-/** 칸 세 개로 끝난다 — 어떤 알림을, 언제, 까다로운 알림까지 건드릴지 */
+/**
+ * 설정을 칸으로 나누지 않고 한 문장으로 보여준다.
+ *
+ * 사람이 여기서 하려는 일은 "토스 알림을 5초 뒤 지워줘" 한 마디를 만드는 것이다.
+ * 칸을 셋으로 쪼개면 그 한 마디가 보이지 않는다. 그래서 문장을 그대로 두고,
+ * 정해야 할 자리만 눌러서 채우게 했다.
+ */
 private fun LazyListScope.clearRuleSections(
     rule: ClearRule,
     onChange: (ClearRule) -> Unit
 ) {
+    item { ClearSentence(rule, onChange) }
+
     item {
-        Section(1, "어떤 알림을", "지우려는 알림을 띄워 둔 채로 고르면 가장 정확합니다") {
-            LiveNotificationPicker { pkg, title, text, clearable ->
-                onChange(
-                    rule.copy(
-                        packageName = pkg,
-                        appLabel = "",
-                        text = text.ifBlank { title },
-                        // 지울 수 없는 알림을 골랐다면 그걸 지우겠다는 뜻이다
-                        includeOngoing = rule.includeOngoing || !clearable
-                    )
+        LiveNotificationPicker(emphasis = false) { pkg, label, title, text, clearable ->
+            onChange(
+                rule.copy(
+                    packageName = pkg,
+                    appLabel = label,
+                    text = text.ifBlank { title },
+                    // 지울 수 없는 알림을 골랐다면 그걸 지우겠다는 뜻이다
+                    includeOngoing = rule.includeOngoing || !clearable
                 )
-            }
-            AppPicker(rule.packageName, rule.appLabel) { pkg, label ->
-                onChange(rule.copy(packageName = pkg, appLabel = label))
-            }
-            OutlinedTextField(
-                value = rule.text,
-                onValueChange = { onChange(rule.copy(text = it)) },
-                label = { Text("알림에 들어 있는 말") },
-                supportingText = { Text("비우면 그 앱의 알림을 전부 지웁니다") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
             )
-            ClearAllWarning(rule.packageName, rule.text)
         }
     }
 
-    item {
-        Section(2, "언제 지울지", "너무 빨리 지우면 알림을 보지도 못합니다") {
-            SecondsField(rule.seconds) { onChange(rule.copy(seconds = it)) }
-        }
-    }
+    item { ClearAllWarning(rule.packageName, rule.text) }
 
     item {
         // 대개는 건드릴 일이 없다. 접어 두고, 켜져 있을 때만 펼쳐 둔다
         var open by remember { mutableStateOf(rule.includeOngoing) }
-        FoldableSection(3, "잘 안 지워질 때", open, { open = it }) {
+        FoldableSection("잘 안 지워질 때", open, { open = it }) {
             SwitchRow(
                 title = "지울 수 없는 알림도 지우기",
                 hint = "진행 중 표시라 손으로도 못 지우는 알림까지 건드립니다.",
@@ -313,6 +285,142 @@ private fun LazyListScope.clearRuleSections(
             ) { onChange(rule.copy(includeOngoing = it)) }
         }
     }
+}
+
+/** 문장 세 줄. 눌러야 하는 자리는 색으로 도드라진다 */
+@Composable
+private fun ClearSentence(rule: ClearRule, onChange: (ClearRule) -> Unit) {
+    var picking by remember { mutableStateOf<String?>(null) }
+
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+        Column(
+            Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 22.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            SentenceRow {
+                Slot(
+                    text = rule.appLabel.ifBlank { rule.packageName.ifBlank { "모든 앱" } },
+                    filled = rule.packageName.isNotBlank()
+                ) { picking = "app" }
+                Tail("에서")
+            }
+            SentenceRow {
+                Slot(
+                    text = if (rule.text.isBlank()) "모든 알림" else "\"${rule.text}\"",
+                    filled = rule.text.isNotBlank()
+                ) { picking = "text" }
+                Tail(if (rule.text.isBlank()) "을" else "포함한 알림을")
+            }
+            SentenceRow {
+                Slot(
+                    text = if (rule.seconds > 0) humanSeconds(rule.seconds) else "바로",
+                    filled = rule.seconds > 0
+                ) { picking = "seconds" }
+                Tail(if (rule.seconds > 0) "뒤에 지웁니다" else "지웁니다")
+            }
+        }
+    }
+
+    when (picking) {
+        "app" -> AppChooserDialog(
+            onPick = { pkg, label -> onChange(rule.copy(packageName = pkg, appLabel = label)); picking = null }
+        ) { picking = null }
+
+        "text" -> TextPrompt(
+            title = "알림에 들어 있는 말",
+            hint = "비우면 그 앱의 알림을 전부 지웁니다",
+            initial = rule.text,
+            onDone = { onChange(rule.copy(text = it)); picking = null }
+        ) { picking = null }
+
+        "seconds" -> NumberPrompt(
+            title = "몇 초 뒤에 지울지",
+            initial = rule.seconds,
+            onDone = { onChange(rule.copy(seconds = it)); picking = null }
+        ) { picking = null }
+    }
+}
+
+@Composable
+private fun SentenceRow(content: @Composable () -> Unit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(3.dp)
+    ) { content() }
+}
+
+/** 문장에서 눌러 고치는 자리. 정해진 값은 청록으로 차오르고, 비면 흐리게 남는다 */
+@Composable
+private fun Slot(text: String, filled: Boolean, onClick: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    Text(
+        text,
+        style = SentenceStyle,
+        color = if (filled) scheme.onPrimaryContainer else scheme.onSurfaceVariant,
+        modifier = Modifier
+            .background(
+                if (filled) scheme.primaryContainer else scheme.surfaceVariant,
+                RoundedCornerShape(8.dp)
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = 9.dp, vertical = 5.dp)
+    )
+}
+
+/** 문장에서 고칠 수 없는 부분 — 조사와 서술어 */
+@Composable
+private fun Tail(text: String) {
+    Text(text, style = SentenceStyle, color = MaterialTheme.colorScheme.onSurface)
+}
+
+/** 한 줄만 받는 입력창 */
+@Composable
+private fun TextPrompt(
+    title: String,
+    hint: String,
+    initial: String,
+    onDone: (String) -> Unit,
+    onClose: () -> Unit
+) {
+    var value by remember { mutableStateOf(initial) }
+    AlertDialog(
+        onDismissRequest = onClose,
+        title = { Text(title) },
+        text = {
+            OutlinedTextField(
+                value = value,
+                onValueChange = { value = it },
+                supportingText = { Text(hint) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+        },
+        confirmButton = { TextButton(onClick = { onDone(value) }) { Text("확인") } },
+        dismissButton = { TextButton(onClick = onClose) { Text("취소") } }
+    )
+}
+
+/** 숫자만 받는 입력창 */
+@Composable
+private fun NumberPrompt(title: String, initial: Int, onDone: (Int) -> Unit, onClose: () -> Unit) {
+    var value by remember { mutableStateOf(initial.toString()) }
+    val seconds = value.toIntOrNull() ?: 0
+    AlertDialog(
+        onDismissRequest = onClose,
+        title = { Text(title) },
+        text = {
+            OutlinedTextField(
+                value = value,
+                onValueChange = { value = it.filter(Char::isDigit).take(6) },
+                supportingText = { Text(humanSeconds(seconds)) },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.fillMaxWidth()
+            )
+        },
+        confirmButton = { TextButton(onClick = { onDone(seconds) }) { Text("확인") } },
+        dismissButton = { TextButton(onClick = onClose) { Text("취소") } }
+    )
 }
 
 @Composable
@@ -512,14 +620,12 @@ private fun Section(
 /** 자주 건드리지 않는 칸. 제목만 두고 접어 둔다 */
 @Composable
 private fun FoldableSection(
-    number: Int,
     title: String,
     open: Boolean,
     onOpen: (Boolean) -> Unit,
     content: @Composable () -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        // 구분선은 줄 전체에 그어야 하므로 제목 묶음 밖에서 따로 그린다
         HorizontalDivider(
             color = MaterialTheme.colorScheme.outline,
             modifier = Modifier.padding(bottom = 6.dp)
@@ -528,8 +634,6 @@ private fun FoldableSection(
             Modifier.fillMaxWidth().clickable { onOpen(!open) },
             verticalAlignment = Alignment.CenterVertically
         ) {
-            NumberBadge(number)
-            Spacer(Modifier.width(10.dp))
             Column {
                 Text(title, style = MaterialTheme.typography.titleMedium)
                 if (!open) {
@@ -638,9 +742,9 @@ private fun TriggerEditor(trigger: Trigger, onChange: (Trigger) -> Unit) {
 
     when (trigger) {
         is Trigger.Notification -> {
-            LiveNotificationPicker { pkg, title, text, _ ->
+            LiveNotificationPicker { pkg, label, title, text, _ ->
                 // 제목보다 본문이 알림마다 잘 달라진다. 본문이 있으면 그쪽을 조건으로 삼는다
-                onChange(trigger.copy(packageName = pkg, appLabel = "", text = text.ifBlank { title }))
+                onChange(trigger.copy(packageName = pkg, appLabel = label, text = text.ifBlank { title }))
             }
             AppPicker(trigger.packageName, trigger.appLabel) { pkg, label ->
                 onChange(trigger.copy(packageName = pkg, appLabel = label))
@@ -676,11 +780,11 @@ private fun ActionEditor(action: Action, onChange: (Action) -> Unit) {
         }
 
         is Action.ClearNotification -> {
-            LiveNotificationPicker(emphasis = false) { pkg, title, text, clearable ->
+            LiveNotificationPicker(emphasis = false) { pkg, label, title, text, clearable ->
                 onChange(
                     action.copy(
                         packageName = pkg,
-                        appLabel = "",
+                        appLabel = label,
                         text = text.ifBlank { title },
                         includeOngoing = action.includeOngoing || !clearable
                     )
@@ -764,7 +868,7 @@ private fun ActionEditor(action: Action, onChange: (Action) -> Unit) {
 @Composable
 private fun LiveNotificationPicker(
     emphasis: Boolean = true,
-    onPick: (pkg: String, title: String, text: String, clearable: Boolean) -> Unit
+    onPick: (pkg: String, label: String, title: String, text: String, clearable: Boolean) -> Unit
 ) {
     var open by remember { mutableStateOf(false) }
     val scheme = MaterialTheme.colorScheme
@@ -781,47 +885,59 @@ private fun LiveNotificationPicker(
         ) { Text("지금 떠 있는 알림에서 고르기") }
     } else {
         OutlinedButton(onClick = { open = true }, modifier = Modifier.fillMaxWidth()) {
-            Text("알림에서 고르기")
+            Text("지금 떠 있는 알림에서 고르기")
         }
     }
 
     if (open) {
-        val items = remember { MacroService.instance?.snapshot().orEmpty() }
-        AlertDialog(
-            onDismissRequest = { open = false },
-            title = { Text("지금 떠 있는 알림") },
-            text = {
-                if (items.isEmpty()) {
-                    Text("떠 있는 알림이 없거나 엔진이 꺼져 있습니다.\n지우려는 알림을 띄운 상태에서 다시 열어 보세요.")
-                } else {
-                    LazyColumn(Modifier.heightIn(max = 420.dp)) {
-                        items(items) { peek ->
-                            Column(
-                                Modifier.fillMaxWidth()
-                                    .clickable {
-                                        onPick(peek.packageName, peek.title, peek.text, peek.clearable)
-                                        open = false
-                                    }
-                                    .padding(vertical = 8.dp)
-                            ) {
-                                Text(peek.title.ifBlank { "(제목 없음)" }, style = MaterialTheme.typography.bodyMedium)
-                                if (peek.text.isNotBlank()) {
-                                    Text(peek.text, style = MaterialTheme.typography.bodySmall)
-                                }
-                                Text(
-                                    peek.packageName + if (!peek.clearable) "  · 지울 수 없는 알림" else "",
-                                    style = MonoSmall,
-                                    color = if (peek.clearable) MaterialTheme.colorScheme.onSurfaceVariant
-                                    else MaterialTheme.colorScheme.error
-                                )
+        LiveNotificationDialog(
+            onPick = { p, l, t, x, c -> onPick(p, l, t, x, c); open = false },
+            onClose = { open = false }
+        )
+    }
+}
+
+/**
+ * 지금 떠 있는 알림에서 골라 앱과 문구를 한 번에 채운다.
+ * 문구를 손으로 맞추다 틀리는 일이 가장 흔한 실패라서 둔 길이다.
+ */
+@Composable
+private fun LiveNotificationDialog(
+    onPick: (pkg: String, label: String, title: String, text: String, clearable: Boolean) -> Unit,
+    onClose: () -> Unit
+) {
+    val items = remember { MacroService.instance?.snapshot().orEmpty() }
+    AlertDialog(
+        onDismissRequest = onClose,
+        title = { Text("지금 떠 있는 알림") },
+        text = {
+            if (items.isEmpty()) {
+                Text("떠 있는 알림이 없거나 엔진이 꺼져 있습니다.\n지우려는 알림을 띄운 상태에서 다시 열어 보세요.")
+            } else {
+                LazyColumn(Modifier.heightIn(max = 420.dp)) {
+                    items(items) { peek ->
+                        Column(
+                            Modifier.fillMaxWidth()
+                                .clickable { onPick(peek.packageName, peek.appLabel, peek.title, peek.text, peek.clearable) }
+                                .padding(vertical = 8.dp)
+                        ) {
+                            Text(peek.title.ifBlank { "(제목 없음)" }, style = MaterialTheme.typography.bodyMedium)
+                            if (peek.text.isNotBlank()) {
+                                Text(peek.text, style = MaterialTheme.typography.bodySmall)
                             }
+                            Text(
+                                peek.packageName + if (!peek.clearable) "  · 지울 수 없는 알림" else "",
+                                style = MonoSmall,
+                                color = if (peek.clearable) MaterialTheme.colorScheme.onSurfaceVariant
+                                else MaterialTheme.colorScheme.error
+                            )
                         }
                     }
                 }
-            },
-            confirmButton = { TextButton(onClick = { open = false }) { Text("닫기") } }
-        )
-    }
+            }
+        },
+        confirmButton = { TextButton(onClick = onClose) { Text("닫기") } }
+    )
 }
 
 /** 고른 값을 그 자리에 보여주는 칸. 눌러야 뭐가 들었는지 아는 버튼은 두지 않는다 */
@@ -844,7 +960,6 @@ private fun PickerField(label: String, value: String, detail: String?, onClick: 
 
 @Composable
 private fun AppPicker(packageName: String, appLabel: String, onPick: (String, String) -> Unit) {
-    val context = LocalContextCompat()
     var open by remember { mutableStateOf(false) }
 
     PickerField(
@@ -853,43 +968,48 @@ private fun AppPicker(packageName: String, appLabel: String, onPick: (String, St
         detail = packageName.takeIf { it.isNotBlank() && appLabel.isNotBlank() },
         onClick = { open = true }
     )
+    if (open) AppChooserDialog(onPick = { pkg, label -> onPick(pkg, label); open = false }) { open = false }
+}
 
-    if (open) {
-        val apps = remember { installedApps(context) }
-        var query by remember { mutableStateOf("") }
-        AlertDialog(
-            onDismissRequest = { open = false },
-            title = { Text("앱 고르기") },
-            text = {
-                Column {
-                    OutlinedTextField(
-                        value = query,
-                        onValueChange = { query = it },
-                        label = { Text("이름이나 패키지로 찾기") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    val shown = apps.filter {
-                        query.isBlank() || it.first.contains(query, true) || it.second.contains(query, true)
-                    }
-                    LazyColumn(Modifier.heightIn(max = 380.dp)) {
-                        items(shown) { (label, pkg) ->
-                            Column(
-                                Modifier.fillMaxWidth()
-                                    .clickable { onPick(pkg, label); open = false }
-                                    .padding(vertical = 8.dp)
-                            ) {
-                                Text(label, style = MaterialTheme.typography.bodyMedium)
-                                Text(pkg, style = MonoSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
+/** 설치된 앱에서 하나 고르는 창. 버튼이 열든 문장 속 조각이 열든 같은 창이다 */
+@Composable
+private fun AppChooserDialog(onPick: (String, String) -> Unit, onClose: () -> Unit) {
+    val context = LocalContextCompat()
+    val apps = remember { installedApps(context) }
+    var query by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onClose,
+        title = { Text("앱 고르기") },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    label = { Text("이름이나 패키지로 찾기") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                val shown = apps.filter {
+                    query.isBlank() || it.first.contains(query, true) || it.second.contains(query, true)
+                }
+                LazyColumn(Modifier.heightIn(max = 380.dp)) {
+                    items(shown) { (label, pkg) ->
+                        Column(
+                            Modifier.fillMaxWidth()
+                                .clickable { onPick(pkg, label) }
+                                .padding(vertical = 8.dp)
+                        ) {
+                            Text(label, style = MaterialTheme.typography.bodyMedium)
+                            Text(pkg, style = MonoSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }
-            },
-            confirmButton = { TextButton(onClick = { onPick("", ""); open = false }) { Text("모든 앱으로") } },
-            dismissButton = { TextButton(onClick = { open = false }) { Text("닫기") } }
-        )
-    }
+            }
+        },
+        confirmButton = { TextButton(onClick = { onPick("", "") }) { Text("모든 앱으로") } },
+        dismissButton = { TextButton(onClick = onClose) { Text("닫기") } }
+    )
 }
 
 @Composable

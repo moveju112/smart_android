@@ -92,6 +92,17 @@ val MonoSmall = TextStyle(
     letterSpacing = 0.sp
 )
 
+/**
+ * 매크로 하나를 문장으로 읽는 화면에서 쓴다.
+ * 이 앱에서 가장 큰 글자다 — 화면에 들어와서 첫 번째로 읽히라고 그렇게 뒀다.
+ */
+val SentenceStyle = TextStyle(
+    fontSize = 21.sp,
+    lineHeight = 34.sp,
+    fontWeight = FontWeight.Medium,
+    letterSpacing = (-0.2).sp
+)
+
 private val AppTypography = Typography(
     titleLarge = TextStyle(fontSize = 22.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.3).sp),
     titleMedium = TextStyle(fontSize = 16.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.1).sp),

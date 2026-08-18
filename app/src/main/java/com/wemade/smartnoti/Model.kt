@@ -153,6 +153,7 @@ fun humanSeconds(seconds: Int): String = when {
 /** 지금 떠 있는 알림 한 줄 */
 data class NotificationPeek(
     val packageName: String,
+    val appLabel: String,
     val title: String,
     val text: String,
     val clearable: Boolean
