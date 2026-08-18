@@ -100,6 +100,24 @@ fun EditScreen(macro: Macro, onSave: (Macro) -> Unit, onDelete: () -> Unit, onCa
     }
 
     var menuOpen by remember { mutableStateOf(false) }
+    var askName by remember { mutableStateOf(false) }
+    val context = LocalContextCompat()
+    // 처음 만드는 매크로인지. 이름은 이때 한 번만 묻고, 그 뒤로는 메뉴에서 고친다
+    val isNew = remember { MacroStore.find(macro.id) == null }
+
+    fun save() {
+        if (isNew) askName = true else onSave(collect())
+    }
+
+    if (askName) {
+        TextPrompt(
+            title = "이름을 정해 주세요",
+            hint = "목록에서 이 이름으로 찾습니다",
+            initial = draft.name,
+            onDone = { onSave(collect().copy(name = it.ifBlank { draft.name })); askName = false },
+            onClose = { askName = false }
+        )
+    }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -112,12 +130,16 @@ fun EditScreen(macro: Macro, onSave: (Macro) -> Unit, onDelete: () -> Unit, onCa
                     }
                 },
                 actions = {
-                    TextButton(onClick = { onSave(collect()) }) { Text("저장") }
-                    // 방식 바꾸기는 한 번 정하면 다시 볼 일이 없다. 눈에서 치워 메뉴에 둔다
+                    TextButton(onClick = { save() }) { Text("저장") }
+                    // 자주 쓰지 않는 것은 전부 여기로 모은다. 본문에는 설정만 남는다
                     IconButton(onClick = { menuOpen = true }) {
                         Icon(Icons.Default.MoreVert, contentDescription = "더 보기")
                     }
                     DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                        DropdownMenuItem(
+                            text = { Text("이름 바꾸기") },
+                            onClick = { menuOpen = false; askName = true }
+                        )
                         if (simple) {
                             DropdownMenuItem(
                                 text = { Text("단계를 직접 짜기") },
@@ -136,6 +158,23 @@ fun EditScreen(macro: Macro, onSave: (Macro) -> Unit, onDelete: () -> Unit, onCa
                                 }
                             )
                         }
+                        if (MacroWidget.canPin(context)) {
+                            DropdownMenuItem(
+                                text = { Text("홈 화면에 버튼으로 놓기") },
+                                onClick = {
+                                    menuOpen = false
+                                    // 저장한 뒤에 놓아야 위젯이 지금 내용을 가리킨다
+                                    val saved = collect()
+                                    MacroStore.upsert(context, saved)
+                                    MacroWidget.pin(context, saved)
+                                }
+                            )
+                        }
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        DropdownMenuItem(
+                            text = { Text("이 매크로 지우기", color = MaterialTheme.colorScheme.error) },
+                            onClick = { menuOpen = false; confirmDelete = true }
+                        )
                     }
                 }
             )
@@ -147,50 +186,10 @@ fun EditScreen(macro: Macro, onSave: (Macro) -> Unit, onDelete: () -> Unit, onCa
                 contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 32.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                // 무엇을 만드는 중인지가 화면에 들어와서 첫 번째로 읽힌다
                 if (simple) {
                     clearRuleSections(rule) { rule = it }
                 } else {
                     advancedSections(draft) { draft = it }
-                }
-
-                item {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outline)
-                        OutlinedTextField(
-                            value = draft.name,
-                            onValueChange = { draft = draft.copy(name = it) },
-                            label = { Text("이름") },
-                            supportingText = { Text("목록에서 이 이름으로 찾습니다") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                }
-
-                item {
-                    // 저장한 뒤에 놓아야 위젯이 지금 내용을 가리킨다
-                    val context = LocalContextCompat()
-                    if (MacroWidget.canPin(context)) {
-                        OutlinedButton(
-                            onClick = {
-                                val saved = collect()
-                                MacroStore.upsert(context, saved)
-                                MacroWidget.pin(context, saved)
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        ) { Text("홈 화면에 버튼으로 놓기") }
-                    }
-                }
-
-                item {
-                    // 저장은 맨 위에 늘 떠 있다. 여기까지 내려와야 하는 것은 지우기뿐이다
-                    OutlinedButton(
-                        onClick = { confirmDelete = true },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("이 매크로 지우기", color = MaterialTheme.colorScheme.error)
-                    }
                 }
             }
         }
