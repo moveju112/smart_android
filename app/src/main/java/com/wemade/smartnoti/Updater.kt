@@ -19,7 +19,12 @@ import java.net.URL
 sealed interface UpdateState {
     data object Checking : UpdateState
     data object UpToDate : UpdateState
-    data object Failed : UpdateState
+
+    /** 무엇이 왜 안 됐는지 그대로 보여준다 */
+    data class Failed(val message: String) : UpdateState
+
+    /** 설치 권한이 꺼져 있다. 설정에서 켜야 넘어간다 */
+    data object NeedsInstallPermission : UpdateState
 
     /** 새 버전이 있다 */
     data class Available(val version: String, val apkUrl: String?) : UpdateState
@@ -88,7 +93,7 @@ object Updater {
             // 이 앱이 스스로를 깐 적이 있으면 확인 화면 없이 끝낼 수 있다.
             // 아직 아니라면 받아만 두고, 사용자가 앱을 열었을 때 배너로 잇는다 —
             // 배경에 있는 앱은 확인 화면을 띄울 수 없기 때문이다
-            if (state.value is UpdateState.Downloaded && canInstallSilently(context)) {
+            if (state.value is UpdateState.Downloaded && canInstallSilently(context) && canInstallPackages(context)) {
                 install(context, found.version)
             }
         } else {
@@ -126,7 +131,7 @@ object Updater {
                 // 릴리스보다 앞선 로컬 빌드에서 옛 APK를 새 버전이라고 안내하는 사고를 막는다
                 if (isNewer(latest, currentVersion)) UpdateState.Available(latest, apkUrl)
                 else UpdateState.UpToDate
-            }.getOrElse { UpdateState.Failed }
+            }.getOrElse { UpdateState.Failed("새 버전을 확인하지 못했습니다. 인터넷 연결을 확인하세요.") }
         }
     }
 
@@ -167,7 +172,7 @@ object Updater {
         }
 
         if (apk == null || apk.length() == 0L) {
-            state.value = UpdateState.Failed
+            state.value = UpdateState.Failed("새 버전을 내려받지 못했습니다. 인터넷 연결을 확인하세요.")
             RunLog.add("업데이트 · 내려받지 못함")
             return
         }
@@ -181,13 +186,25 @@ object Updater {
     suspend fun install(context: Context, version: String) {
         val apk = pendingApk(context)
         if (apk == null) {
-            state.value = UpdateState.Failed
+            state.value = UpdateState.Failed("받아둔 파일이 없습니다. 다시 받아 주세요.")
+            return
+        }
+        // 이 권한이 없으면 시스템이 설치를 아예 시작하지 않는다
+        if (!canInstallPackages(context)) {
+            state.value = UpdateState.NeedsInstallPermission
             return
         }
         state.value = UpdateState.Installing(version)
-        val handed = withContext(Dispatchers.IO) { runCatching { handToInstaller(context, apk) }.isSuccess }
-        if (!handed) state.value = UpdateState.Failed
+        val outcome = withContext(Dispatchers.IO) { runCatching { handToInstaller(context, apk) } }
+        outcome.onFailure {
+            state.value = UpdateState.Failed("설치를 시작하지 못했습니다 · ${it.message ?: it::class.simpleName}")
+            RunLog.add("업데이트 설치 시작 실패 · ${it.message}")
+        }
     }
+
+    /** "알 수 없는 앱 설치" 가 이 앱에 허용돼 있는지 */
+    fun canInstallPackages(context: Context): Boolean =
+        runCatching { context.packageManager.canRequestPackageInstalls() }.getOrDefault(false)
 
     private fun handToInstaller(context: Context, apk: File) {
         val installer = context.packageManager.packageInstaller

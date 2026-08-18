@@ -289,7 +289,12 @@ private fun MacroListScreen(
             (updateState as? UpdateState.Downloaded)?.let { ready ->
                 item {
                     UpdateReadyBanner(ready.version) {
-                        scope.launch { Updater.install(context, ready.version) }
+                        scope.launch {
+                            Updater.install(context, ready.version)
+                            if (Updater.state.value == UpdateState.NeedsInstallPermission) {
+                                snackbar.showMessage("앱 설치 권한이 필요합니다. 메뉴 → 업데이트에서 켜 주세요")
+                            }
+                        }
                     }
                 }
             }
@@ -537,7 +542,9 @@ private fun UpdateDialog(onClose: () -> Unit) {
                         null -> "아직 확인해 보지 않았습니다."
                         UpdateState.Checking -> "확인하는 중…"
                         UpdateState.UpToDate -> "최신 버전입니다."
-                        UpdateState.Failed -> "확인하지 못했습니다. 인터넷 연결을 확인하세요."
+                        is UpdateState.Failed -> s.message
+                        UpdateState.NeedsInstallPermission ->
+                            "이 앱이 앱을 설치할 수 있게 허용해야 합니다. 아래 버튼으로 설정에서 켜 주세요."
                         is UpdateState.Available -> "새 버전 ${s.version}이 나왔습니다."
                         is UpdateState.Downloading -> "내려받는 중… ${s.percent}%"
                         is UpdateState.Downloaded ->
@@ -569,13 +576,28 @@ private fun UpdateDialog(onClose: () -> Unit) {
         confirmButton = {
             val downloaded = state as? UpdateState.Downloaded
             when {
+                state == UpdateState.NeedsInstallPermission -> TextButton(onClick = {
+                    context.startActivity(
+                        Intent(
+                            Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                            Uri.parse("package:${context.packageName}")
+                        )
+                    )
+                }) { Text("설정 열기") }
+
                 downloaded != null -> TextButton(onClick = {
                     scope.launch { Updater.install(context, downloaded.version) }
                 }) { Text("설치") }
 
+                // 받기를 누르면 설치까지 이어간다. 두 번 누를 이유가 없다
                 available?.apkUrl != null -> TextButton(onClick = {
-                    scope.launch { Updater.download(context, available.version, available.apkUrl) }
-                }) { Text("받기") }
+                    scope.launch {
+                        Updater.download(context, available.version, available.apkUrl)
+                        if (Updater.state.value is UpdateState.Downloaded) {
+                            Updater.install(context, available.version)
+                        }
+                    }
+                }) { Text("받아서 설치") }
 
                 else -> TextButton(onClick = {
                     scope.launch { Updater.check(BuildConfig.VERSION_NAME) }

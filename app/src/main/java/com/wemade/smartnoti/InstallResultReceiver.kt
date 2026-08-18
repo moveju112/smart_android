@@ -33,7 +33,7 @@ class InstallResultReceiver : BroadcastReceiver() {
 
             else -> {
                 val message = intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE)
-                Updater.state.value = UpdateState.Failed
+                Updater.state.value = UpdateState.Failed("설치하지 못했습니다 · ${message ?: "알 수 없는 이유"}")
                 RunLog.add("업데이트 설치 실패 · ${message ?: "알 수 없는 이유"}")
             }
         }
