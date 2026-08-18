@@ -15,17 +15,21 @@ class InstallResultReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         when (intent.getIntExtra(PackageInstaller.EXTRA_STATUS, -1)) {
             PackageInstaller.STATUS_PENDING_USER_ACTION -> {
+                // 확인이 필요하다는 뜻. 앱이 화면에 있으면 그 화면이 뜨고, 배경이면 조용히 막힌다.
+                // 어느 쪽이든 "받아 뒀음"으로 되돌려, 앱을 열었을 때 배너로 다시 이을 수 있게 한다
+                Updater.state.value = UpdateState.Downloaded("")
                 val confirm = IntentCompat.getParcelableExtra(intent, Intent.EXTRA_INTENT, Intent::class.java)
                 if (confirm != null) {
                     confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     runCatching { context.startActivity(confirm) }
                         .onFailure { RunLog.add("업데이트 · 설치 화면을 열지 못함") }
-                } else {
-                    Updater.state.value = UpdateState.Failed
                 }
             }
 
-            PackageInstaller.STATUS_SUCCESS -> RunLog.add("업데이트 설치 완료")
+            PackageInstaller.STATUS_SUCCESS -> {
+                RunLog.add("업데이트 설치 완료")
+                Updater.pendingApk(context)?.delete()
+            }
 
             else -> {
                 val message = intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE)

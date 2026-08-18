@@ -110,6 +110,13 @@ private fun AppRoot(resumeTick: Int) {
     val context = LocalContext.current
     var screen by remember { mutableStateOf<Screen>(Screen.List) }
 
+    // 배경에서 받아둔 새 버전이 있으면 화면에 들어온 지금 이어서 설치할 수 있다
+    LaunchedEffect(Unit) {
+        if (Updater.state.value == null && Updater.pendingApk(context) != null) {
+            Updater.state.value = UpdateState.Downloaded("")
+        }
+    }
+
     // 블루투스 트리거를 쓰려면 안드로이드 12+에서 런타임 승인이 필요하다
     val askBluetooth = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
     LaunchedEffect(Unit) {
@@ -162,6 +169,7 @@ private fun MacroListScreen(
     val macros by MacroStore.macros.collectAsState()
     val running by EngineState.running.collectAsState()
     val recent by RunLog.lines.collectAsState()
+    val updateState by Updater.state.collectAsState()
 
     var listenerEnabled by remember { mutableStateOf(isListenerEnabled(context)) }
     LaunchedEffect(resumeTick) { listenerEnabled = isListenerEnabled(context) }
@@ -276,6 +284,14 @@ private fun MacroListScreen(
                     onOpenSettings = { context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) },
                     onOpenLog = onOpenLog
                 )
+            }
+
+            (updateState as? UpdateState.Downloaded)?.let { ready ->
+                item {
+                    UpdateReadyBanner(ready.version) {
+                        scope.launch { Updater.install(context, ready.version) }
+                    }
+                }
             }
 
             items(macros, key = { it.id }) { macro ->
@@ -467,6 +483,35 @@ private fun EmptyState() {
     }
 }
 
+/** 배경에서 받아둔 새 버전을 알린다. 설치 확인 화면은 앱이 화면에 있을 때만 뜰 수 있다 */
+@Composable
+private fun UpdateReadyBanner(version: String, onInstall: () -> Unit) {
+    Card(
+        onClick = onInstall,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+    ) {
+        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    if (version.isBlank()) "새 버전을 받아 뒀습니다" else "새 버전 $version 을 받아 뒀습니다",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+                Text(
+                    "눌러서 설치합니다. 처음 한 번은 확인 화면이 뜹니다.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            }
+            Icon(
+                Icons.Default.Refresh,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onPrimaryContainer
+            )
+        }
+    }
+}
+
 /** 지금 버전이 무엇이고, 새것이 있는지, 자동으로 받을지를 한 화면에서 다룬다 */
 @Composable
 private fun UpdateDialog(onClose: () -> Unit) {
@@ -495,6 +540,9 @@ private fun UpdateDialog(onClose: () -> Unit) {
                         UpdateState.Failed -> "확인하지 못했습니다. 인터넷 연결을 확인하세요."
                         is UpdateState.Available -> "새 버전 ${s.version}이 나왔습니다."
                         is UpdateState.Downloading -> "내려받는 중… ${s.percent}%"
+                        is UpdateState.Downloaded ->
+                            if (s.version.isBlank()) "받아 뒀습니다. 설치만 남았습니다."
+                            else "${s.version}을 받아 뒀습니다. 설치만 남았습니다."
                         is UpdateState.Installing -> "설치하는 중…"
                     },
                     style = MaterialTheme.typography.bodyMedium
@@ -519,12 +567,17 @@ private fun UpdateDialog(onClose: () -> Unit) {
             }
         },
         confirmButton = {
-            if (available != null && available.apkUrl != null) {
-                TextButton(onClick = {
-                    scope.launch { Updater.downloadAndInstall(context, available.version, available.apkUrl) }
-                }) { Text("지금 설치") }
-            } else {
-                TextButton(onClick = {
+            val downloaded = state as? UpdateState.Downloaded
+            when {
+                downloaded != null -> TextButton(onClick = {
+                    scope.launch { Updater.install(context, downloaded.version) }
+                }) { Text("설치") }
+
+                available?.apkUrl != null -> TextButton(onClick = {
+                    scope.launch { Updater.download(context, available.version, available.apkUrl) }
+                }) { Text("받기") }
+
+                else -> TextButton(onClick = {
                     scope.launch { Updater.check(BuildConfig.VERSION_NAME) }
                 }) { Text("지금 확인") }
             }

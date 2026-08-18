@@ -27,6 +27,9 @@ sealed interface UpdateState {
     /** 내려받는 중 */
     data class Downloading(val version: String, val percent: Int) : UpdateState
 
+    /** 받아는 뒀다. 앱을 열었을 때 설치를 잇는다 */
+    data class Downloaded(val version: String) : UpdateState
+
     /** 설치를 시스템에 넘겼다. 확인 화면이 뜰 수도, 조용히 끝날 수도 있다 */
     data class Installing(val version: String) : UpdateState
 }
@@ -71,8 +74,22 @@ object Updater {
         check(BuildConfig.VERSION_NAME)
         val found = state.value
         if (found is UpdateState.Available && found.apkUrl != null) {
-            downloadAndInstall(context, found.version, found.apkUrl)
+            download(context, found.version, found.apkUrl)
+            // 이 앱이 스스로를 깐 적이 있으면 확인 화면 없이 끝낼 수 있다.
+            // 아직 아니라면 받아만 두고, 사용자가 앱을 열었을 때 배너로 잇는다 —
+            // 배경에 있는 앱은 확인 화면을 띄울 수 없기 때문이다
+            if (state.value is UpdateState.Downloaded && canInstallSilently(context)) {
+                install(context, found.version)
+            }
         }
+    }
+
+    /** 첫 설치를 이 앱이 했는지. 그래야 안드로이드가 확인 화면을 건너뛰게 해준다 */
+    private fun canInstallSilently(context: Context): Boolean {
+        if (Build.VERSION.SDK_INT < 31) return false
+        return runCatching {
+            context.packageManager.getInstallSourceInfo(context.packageName).installingPackageName
+        }.getOrNull() == context.packageName
     }
 
     /** 최신 릴리스를 조회해 지금 버전과 견준다 */
@@ -101,8 +118,12 @@ object Updater {
         }
     }
 
-    /** APK를 내려받아 설치까지 맡긴다 */
-    suspend fun downloadAndInstall(context: Context, version: String, apkUrl: String) {
+    /** 받아둔 APK. 앱을 열었을 때 이어서 설치한다 */
+    fun pendingApk(context: Context): File? =
+        File(context.cacheDir, "update.apk").takeIf { it.length() > 0 }
+
+    /** APK를 내려받는다. 설치는 앱이 화면에 있을 때 [install]로 잇는다 */
+    suspend fun download(context: Context, version: String, apkUrl: String) {
         val apk = withContext(Dispatchers.IO) {
             runCatching {
                 state.value = UpdateState.Downloading(version, 0)
@@ -137,14 +158,25 @@ object Updater {
             state.value = UpdateState.Failed
             return
         }
+        state.value = UpdateState.Downloaded(version)
+    }
 
+    /**
+     * 받아둔 APK를 시스템 설치기에 넘긴다.
+     * 확인 화면이 뜰 수 있으므로 앱이 화면에 있을 때만 부른다.
+     */
+    suspend fun install(context: Context, version: String) {
+        val apk = pendingApk(context)
+        if (apk == null) {
+            state.value = UpdateState.Failed
+            return
+        }
         state.value = UpdateState.Installing(version)
-        val handed = withContext(Dispatchers.IO) { runCatching { install(context, apk) }.isSuccess }
+        val handed = withContext(Dispatchers.IO) { runCatching { handToInstaller(context, apk) }.isSuccess }
         if (!handed) state.value = UpdateState.Failed
     }
 
-    /** 시스템 설치기에 APK를 넘긴다 */
-    private fun install(context: Context, apk: File) {
+    private fun handToInstaller(context: Context, apk: File) {
         val installer = context.packageManager.packageInstaller
         val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL)
         // 이 앱이 이 앱을 갈아끼우는 것이므로, 조건이 맞으면 확인 화면 없이 끝난다
