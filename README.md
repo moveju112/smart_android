@@ -49,20 +49,32 @@ MacroDroid로 하던 일 중 **알림 삭제 · 블루투스/와이파이 반응
 안드로이드가 앱의 자가 설치를 제한하기 때문에 **처음 한 번은 설치 확인 화면이 뜬다.**
 그 뒤로는 확인 없이 갱신된다.
 
-APK는 디버그 키로 서명한다. 서명이 다르면 설치가 거부되므로 **같은 곳에서 빌드한 APK끼리만** 갱신된다.
+APK는 전용 릴리스 키로 서명한다. 서명이 다르면 설치가 거부되므로 **같은 키로 서명한 APK끼리만** 갱신된다.
+키는 `~/.android/smart_android.jks`에 있고 비밀번호는 `local.properties`에 적혀 있다.
+**둘 중 하나라도 잃으면 이후 갱신을 배포할 수 없다.** 따로 백업해 둘 것.
 
 ## 빌드
 
 ```bash
-./gradlew :app:assembleDebug          # app/build/outputs/apk/debug/
+./gradlew :app:assembleRelease        # 배포용. app/build/outputs/apk/release/
+./gradlew :app:assembleDebug          # 개발용. 디버그 키로 서명된다
 ./gradlew :app:testDebugUnitTest      # 단위 테스트
 ```
 
-`local.properties`에 안드로이드 SDK 경로가 필요하다.
+배포하는 APK는 항상 `assembleRelease`로 뽑는다. 디버그 키로 서명된 APK는
+Play Protect가 더 자주 막고, 릴리스 키로 서명한 것과 서로 갱신되지 않는다.
+
+`local.properties`에 SDK 경로와 서명 정보가 필요하다. 이 파일은 저장소에 올리지 않는다.
 
 ```
 sdk.dir=/path/to/Android/Sdk
+releaseStoreFile=/path/to/smart_android.jks
+releaseStorePassword=...
+releaseKeyAlias=smartandroid
+releaseKeyPassword=...
 ```
+
+서명 정보가 없으면 릴리스 빌드는 서명 없이 나온다. 그 APK는 기기에 설치되지 않는다.
 
 ## 처음 켠 뒤 할 일
 

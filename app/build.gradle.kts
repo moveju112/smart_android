@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -5,21 +7,45 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
+// 서명 정보는 local.properties에 둔다. 이 파일은 저장소에 올라가지 않는다
+val localProps = Properties().apply {
+    val f = rootProject.file("local.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}
+
 android {
     namespace = "com.wemade.smartnoti"
     compileSdk = 35
+
+    signingConfigs {
+        create("release") {
+            val store = localProps.getProperty("releaseStoreFile")
+            if (store != null && file(store).exists()) {
+                storeFile = file(store)
+                storePassword = localProps.getProperty("releaseStorePassword")
+                keyAlias = localProps.getProperty("releaseKeyAlias")
+                keyPassword = localProps.getProperty("releaseKeyPassword")
+            }
+        }
+    }
 
     defaultConfig {
         applicationId = "com.wemade.smartnoti"
         minSdk = 26
         targetSdk = 35
-        versionCode = 7
-        versionName = "0.5.0"
+        versionCode = 8
+        versionName = "0.6.0"
     }
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // 키가 없는 곳에서 받아도 빌드는 되게 둔다. 그때는 서명 없이 나온다
+            if (signingConfigs.getByName("release").storeFile != null) {
+                signingConfig = signingConfigs.getByName("release")
+            }
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
 
