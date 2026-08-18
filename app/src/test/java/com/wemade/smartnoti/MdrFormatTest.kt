@@ -116,44 +116,6 @@ class MdrFormatTest {
     }
 
     @Test
-    fun `내보낸 파일을 다시 가져오면 내용이 같다`() {
-        val original = importMdr(SAMPLE_MDR).macros
-        val roundTrip = importMdr(exportMdr(original)).macros
-
-        assertEquals(original.size, roundTrip.size)
-        original.forEachIndexed { index, macro ->
-            assertEquals(macro.name, roundTrip[index].name)
-            assertEquals(macro.enabled, roundTrip[index].enabled)
-            assertEquals(macro.trigger, roundTrip[index].trigger)
-            assertEquals(macro.actions, roundTrip[index].actions)
-        }
-    }
-
-    @Test
-    fun `내보낸 파일에 MacroDroid가 요구하는 필드가 들어 있다`() {
-        val text = exportMdr(importMdr(SAMPLE_MDR).macros)
-
-        listOf(
-            "exportFormat", "macroList", "m_GUID", "m_SIGUID", "m_classType",
-            "m_triggerList", "m_actionList", "m_constraintList", "m_category", "m_completed"
-        ).forEach { field ->
-            assertTrue("내보낸 파일에 $field 가 없다", text.contains("\"$field\""))
-        }
-    }
-
-    @Test
-    fun `조건부 중단은 MacroDroid에 대응이 없어 빠진다`() {
-        val macro = Macro(
-            id = 1, name = "조건 있는 매크로",
-            trigger = Trigger.Wifi(true),
-            actions = listOf(Action.StopIfBluetooth("AA:BB", "차", true), Action.Delay(3))
-        )
-        val back = importMdr(exportMdr(listOf(macro))).macros.single()
-
-        assertEquals(listOf(Action.Delay(3)), back.actions)
-    }
-
-    @Test
     fun `매크로가 없는 파일은 빈 결과를 준다`() {
         val result = importMdr("""{"exportFormat":2}""")
         assertTrue(result.macros.isEmpty())

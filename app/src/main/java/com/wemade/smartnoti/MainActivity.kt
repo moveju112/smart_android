@@ -177,7 +177,7 @@ private fun MacroListScreen(
     var showNewMacro by remember { mutableStateOf(false) }
     val snackbar = remember { SnackbarHostState() }
 
-    // MacroDroid 백업 파일 읽기 — 확장자가 .mdr이라 종류를 가리지 않고 연다
+    // 백업 파일 읽기 — 이 앱의 .json과 예전 .mdr을 모두 받아서 종류를 가리지 않고 연다
     val openFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
@@ -185,42 +185,51 @@ private fun MacroListScreen(
                 val text = withContext(Dispatchers.IO) {
                     context.contentResolver.openInputStream(uri)!!.bufferedReader().use { it.readText() }
                 }
-                importMdr(text)
+                importBackup(text)
             }
             outcome.onSuccess { result ->
+                // 읽기만 하고 아직 덮어쓰지 않는다. 무엇이 사라지는지 보여주고 확인을 받는다
                 if (result.macros.isEmpty() && result.skippedMacros.isEmpty()) {
                     snackbar.showMessage("매크로가 들어 있지 않은 파일입니다")
                 } else {
-                    MacroStore.save(context, MacroStore.macros.value + result.macros)
                     importReport = result
                 }
             }.onFailure {
-                snackbar.showMessage("파일을 읽지 못했습니다. MacroDroid 백업(.mdr)이 맞는지 확인하세요")
+                snackbar.showMessage("파일을 읽지 못했습니다. 이 앱에서 내보낸 백업이 맞는지 확인하세요")
             }
         }
     }
 
     val saveFile = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument("application/octet-stream")
+        ActivityResultContracts.CreateDocument("application/json")
     ) { uri: Uri? ->
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
             val outcome = runCatching {
                 withContext(Dispatchers.IO) {
                     context.contentResolver.openOutputStream(uri)!!.bufferedWriter().use {
-                        it.write(exportMdr(MacroStore.macros.value))
+                        it.write(exportBackup(MacroStore.macros.value))
                     }
                 }
             }
             snackbar.showMessage(
-                if (outcome.isSuccess) "매크로 ${MacroStore.macros.value.size}개를 내보냈습니다"
+                if (outcome.isSuccess) "매크로 ${MacroStore.macros.value.size}개를 백업했습니다"
                 else "파일을 저장하지 못했습니다"
             )
         }
     }
 
     importReport?.let { report ->
-        ImportReportDialog(report) { importReport = null }
+        ImportConfirmDialog(
+            result = report,
+            current = macros.size,
+            onConfirm = {
+                MacroStore.save(context, report.macros)
+                importReport = null
+                scope.launch { snackbar.showMessage("매크로 ${report.macros.size}개를 불러왔습니다") }
+            },
+            onClose = { importReport = null }
+        )
     }
     if (showUpdate) UpdateDialog { showUpdate = false }
     if (showNewMacro) NewMacroDialog(onPick = { showNewMacro = false; onAdd(it) }) { showNewMacro = false }
@@ -237,14 +246,14 @@ private fun MacroListScreen(
                     }
                     DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                         DropdownMenuItem(
-                            text = { Text("MacroDroid에서 가져오기") },
-                            leadingIcon = { Icon(Icons.Default.FileDownload, null) },
-                            onClick = { menuOpen = false; openFile.launch(arrayOf("*/*")) }
+                            text = { Text("백업하기") },
+                            leadingIcon = { Icon(Icons.Default.FileUpload, null) },
+                            onClick = { menuOpen = false; saveFile.launch(backupFileName()) }
                         )
                         DropdownMenuItem(
-                            text = { Text("MacroDroid로 내보내기") },
-                            leadingIcon = { Icon(Icons.Default.FileUpload, null) },
-                            onClick = { menuOpen = false; saveFile.launch("SmartAndroid.mdr") }
+                            text = { Text("백업 불러오기") },
+                            leadingIcon = { Icon(Icons.Default.FileDownload, null) },
+                            onClick = { menuOpen = false; openFile.launch(arrayOf("*/*")) }
                         )
                         HorizontalDivider()
                         DropdownMenuItem(
@@ -560,7 +569,7 @@ private fun EmptyState() {
         Text("아직 매크로가 없습니다", style = MaterialTheme.typography.titleMedium)
         Spacer(Modifier.padding(top = 6.dp))
         Text(
-            "아래 버튼으로 만들거나,\n위 메뉴에서 MacroDroid 백업을 가져오세요.",
+            "아래 버튼으로 만들거나,\n위 메뉴에서 백업을 불러오세요.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -689,34 +698,47 @@ private fun UpdateDialog(onClose: () -> Unit) {
     )
 }
 
-/** 가져오기 결과 — 몇 개를 옮겼고 무엇을 못 옮겼는지 숨기지 않는다 */
+/** 백업 파일 이름 — 언제 받은 것인지 파일 목록에서 바로 보이게 날짜를 붙인다 */
+private fun backupFileName(): String =
+    "SmartAndroid-" + java.time.LocalDate.now() + ".json"
+
+/**
+ * 불러오기는 지금 있는 것을 통째로 바꾼다.
+ * 되돌릴 수 없으니 무엇이 사라지고 무엇이 들어오는지 먼저 보여준다.
+ */
 @Composable
-private fun ImportReportDialog(result: ImportResult, onClose: () -> Unit) {
+private fun ImportConfirmDialog(
+    result: ImportResult,
+    current: Int,
+    onConfirm: () -> Unit,
+    onClose: () -> Unit
+) {
     AlertDialog(
         onDismissRequest = onClose,
-        title = { Text("매크로 ${result.macros.size}개를 가져왔습니다") },
+        title = { Text("백업을 불러올까요?") },
         text = {
             Column {
-                if (result.skippedMacros.isEmpty() && result.partialMacros.isEmpty()) {
-                    Text("빠짐없이 옮겼습니다.")
-                } else {
-                    if (result.skippedMacros.isNotEmpty()) {
-                        Text("이 앱이 모르는 트리거라 건너뜀", style = MaterialTheme.typography.titleSmall)
-                        result.skippedMacros.forEach {
-                            Text("· $it", style = MaterialTheme.typography.bodySmall)
-                        }
-                        Spacer(Modifier.padding(top = 8.dp))
+                Text("지금 매크로 ${current}개가 사라지고, 파일의 ${result.macros.size}개로 바뀝니다.")
+
+                // MacroDroid 백업을 읽었을 때만 나온다. 이 앱 백업은 빠지는 것이 없다
+                if (result.skippedMacros.isNotEmpty()) {
+                    Spacer(Modifier.padding(top = 8.dp))
+                    Text("이 앱이 모르는 트리거라 건너뜀", style = MaterialTheme.typography.titleSmall)
+                    result.skippedMacros.forEach {
+                        Text("· $it", style = MaterialTheme.typography.bodySmall)
                     }
-                    if (result.partialMacros.isNotEmpty()) {
-                        Text("일부만 옮김", style = MaterialTheme.typography.titleSmall)
-                        result.partialMacros.forEach {
-                            Text("· $it", style = MaterialTheme.typography.bodySmall)
-                        }
+                }
+                if (result.partialMacros.isNotEmpty()) {
+                    Spacer(Modifier.padding(top = 8.dp))
+                    Text("일부만 옮김", style = MaterialTheme.typography.titleSmall)
+                    result.partialMacros.forEach {
+                        Text("· $it", style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }
         },
-        confirmButton = { TextButton(onClick = onClose) { Text("확인") } }
+        confirmButton = { TextButton(onClick = onConfirm) { Text("불러오기") } },
+        dismissButton = { TextButton(onClick = onClose) { Text("그대로 두기") } }
     )
 }
 

@@ -17,7 +17,10 @@ object MacroStore {
 
     private fun file(context: Context) = File(context.filesDir, "macros.json")
 
-    /** 최초 1회 파일에서 읽어온다. 파일이 없으면 기본 매크로를 깔아준다 */
+    /**
+     * 최초 1회 파일에서 읽어온다.
+     * 미리 깔아 두는 매크로는 없다 — 무엇을 자동화할지는 쓰는 사람이 정한다.
+     */
     @Synchronized
     fun load(context: Context) {
         if (loaded) return
@@ -26,7 +29,7 @@ object MacroStore {
         _macros.value = if (f.exists()) {
             runCatching { json.decodeFromString<List<Macro>>(f.readText()) }.getOrDefault(emptyList())
         } else {
-            defaultMacros().also { save(context, it) }
+            emptyList()
         }
     }
 
@@ -83,99 +86,4 @@ object RunLog {
         val stamp = java.time.LocalTime.now().withNano(0).toString()
         _lines.value = (listOf("$stamp  $message") + _lines.value).take(MAX_LINES)
     }
-}
-
-/** MacroDroid에서 쓰던 매크로를 그대로 옮겨놓은 초기값 */
-private fun defaultMacros(): List<Macro> {
-    val carMac = "0C:29:8F:73:C7:F5"
-    val carName = "Tesla Model Y Why"
-    // AdGuard 자동화 브로드캐스트는 그 앱 설정에 적힌 비밀번호를 extra로 같이 보낸다
-    fun adguard(action: String) = Action.Broadcast(
-        packageName = "com.adguard.android",
-        className = "com.adguard.android.receiver.AutomationReceiver",
-        action = action,
-        extraName = "password",
-        extraValue = "q3yXS"
-    )
-    var seq = 1L
-    fun nextId() = seq++
-
-    return listOf(
-        Macro(
-            id = nextId(), name = "토스 알림 삭제",
-            trigger = Trigger.Notification("viva.republica.toss", "토스"),
-            actions = listOf(
-                Action.Delay(5),
-                Action.ClearNotification("viva.republica.toss", "토스", "MSTU")
-            )
-        ),
-        Macro(
-            id = nextId(), name = "테슬라 연결 알림 삭제",
-            trigger = Trigger.Notification("com.teslamotors.tesla", "Tesla", "연결됨"),
-            actions = listOf(
-                Action.Delay(30),
-                Action.ClearNotification("com.teslamotors.tesla", "Tesla", "연결됨")
-            )
-        ),
-        Macro(
-            id = nextId(), name = "테슬라 연결 해제 알림 삭제",
-            trigger = Trigger.Notification("com.teslamotors.tesla", "Tesla", "연결 해제됨"),
-            actions = listOf(
-                Action.Delay(15),
-                Action.ClearNotification("com.teslamotors.tesla", "Tesla", "연결 해제됨")
-            )
-        ),
-        Macro(
-            id = nextId(), name = "헤이홈 알림 삭제",
-            trigger = Trigger.Notification("com.goqual", "헤이홈"),
-            actions = listOf(
-                Action.Delay(60),
-                Action.ClearNotification("com.goqual", "헤이홈", "재부팅")
-            )
-        ),
-        Macro(
-            id = nextId(), name = "네이버 지도 도착 알림 삭제",
-            trigger = Trigger.Notification("com.nhn.android.nmap", "네이버 지도"),
-            actions = listOf(
-                Action.Delay(60),
-                Action.ClearNotification("com.nhn.android.nmap", "네이버 지도", "길안내를 종료합니다")
-            )
-        ),
-        Macro(
-            id = nextId(), name = "rclone 알림 삭제",
-            trigger = Trigger.Notification("com.google.android.gms", "Google Play 서비스", "rclone"),
-            actions = listOf(
-                Action.ClearNotification("com.google.android.gms", "Google Play 서비스", "rclone")
-            )
-        ),
-        Macro(
-            id = nextId(), name = "Windows 연결 알림 삭제", enabled = false,
-            trigger = Trigger.Notification("com.microsoft.appmanager", "Windows와 연결"),
-            actions = listOf(
-                Action.ClearNotification("com.microsoft.appmanager", "Windows와 연결")
-            )
-        ),
-        Macro(
-            id = nextId(), name = "AdGuard 시작 (와이파이 연결)",
-            trigger = Trigger.Wifi(connected = true),
-            actions = listOf(adguard("start"))
-        ),
-        Macro(
-            id = nextId(), name = "AdGuard 종료 (차 탈 때)",
-            trigger = Trigger.Bluetooth(carMac, carName, connected = true),
-            actions = listOf(adguard("stop"))
-        ),
-        Macro(
-            id = nextId(), name = "AdGuard 시작 (차 내리고 30분 뒤)",
-            trigger = Trigger.Bluetooth(carMac, carName, connected = false),
-            actions = listOf(
-                Action.Delay(1800),
-                // 30분 사이에 차를 다시 탔으면 켜지 않는다
-                Action.StopIfBluetooth(carMac, carName, connected = true),
-                adguard("start"),
-                Action.Delay(300),
-                adguard("start")
-            )
-        )
-    )
 }
