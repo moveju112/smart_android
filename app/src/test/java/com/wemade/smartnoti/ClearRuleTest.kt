@@ -8,7 +8,7 @@ import org.junit.Test
 class ClearRuleTest {
 
     private fun macro(trigger: Trigger, vararg actions: Action) =
-        Macro(id = 1, name = "t", trigger = trigger, actions = actions.toList())
+        Macro(id = 1, name = "t", triggers = listOf(trigger), actions = actions.toList())
 
     @Test
     fun `대기 없는 알림 삭제도 규칙으로 본다`() {
@@ -70,7 +70,7 @@ class ClearRuleTest {
         val rule = ClearRule("com.x", "X", "재부팅", 60)
         val m = macro(Trigger.Notification(), Action.ClearNotification()).withClearRule(rule)
 
-        assertEquals(Trigger.Notification("com.x", "X", "재부팅"), m.trigger)
+        assertEquals(Trigger.Notification("com.x", "X", "재부팅"), m.firstTrigger())
         assertEquals(listOf(Action.Delay(60), Action.ClearNotification("com.x", "X", "재부팅")), m.actions)
         assertEquals(rule, m.asClearRule())
     }

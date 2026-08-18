@@ -34,7 +34,7 @@ enum class Step { Trigger, Wait, Act, Gate }
 
 fun Action.step(): Step = when (this) {
     is Action.Delay -> Step.Wait
-    is Action.StopIfBluetooth -> Step.Gate
+    is Action.StopIfBluetooth, is Action.StopUnless -> Step.Gate
     else -> Step.Act
 }
 
@@ -122,16 +122,20 @@ fun MacroRail(
     actColor: Color,
     line: @Composable (index: Int, text: String) -> Unit
 ) {
-    val total = macro.actions.size + 1
+    val triggers = macro.allTriggers()
+    val total = macro.actions.size + triggers.size
     androidx.compose.foundation.layout.Column(verticalArrangement = Arrangement.spacedBy(0.dp)) {
-        RailRow(
-            step = Step.Trigger,
-            isFirst = true,
-            isLast = total == 1,
-            lineColor = lineColor,
-            markerColor = triggerColor,
-            running = running
-        ) { line(-1, macro.trigger.summary()) }
+        // 트리거가 여럿이면 모두 적는다. 그중 하나만 걸려도 돌기 때문이다
+        triggers.forEachIndexed { index, trigger ->
+            RailRow(
+                step = Step.Trigger,
+                isFirst = index == 0,
+                isLast = total == index + 1,
+                lineColor = lineColor,
+                markerColor = triggerColor,
+                running = running
+            ) { line(-1, trigger.summary() + if (index < triggers.lastIndex) "  또는" else "") }
+        }
 
         macro.actions.forEachIndexed { index, action ->
             val step = action.step()

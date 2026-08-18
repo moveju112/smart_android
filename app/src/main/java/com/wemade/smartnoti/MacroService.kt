@@ -121,11 +121,76 @@ class MacroService : NotificationListenerService() {
         }
     }
 
-    /** 조건에 맞는 매크로를 모두 실행한다. 이미 돌고 있는 매크로는 건너뛴다 */
+    /**
+     * 조건에 맞는 매크로를 모두 실행한다. 이미 돌고 있는 매크로는 건너뛴다.
+     * 트리거가 여럿이면 그중 하나만 걸려도 돈다.
+     */
     private fun fire(matches: (Trigger) -> Boolean) {
         MacroStore.macros.value
-            .filter { it.enabled && matches(it.trigger) }
+            .filter { macro -> macro.enabled && macro.allTriggers().any(matches) }
             .forEach { macro -> launchMacro(macro, force = false) }
+    }
+
+    /**
+     * 조건 하나를 지금 상태에 견준다.
+     * 위치는 새로 잡지 않고 다른 앱이 받아 둔 마지막 값을 읽는다 — 배터리를 쓰지 않으려는 것이다.
+     */
+    private fun evaluate(condition: Condition): Boolean = when (condition) {
+        is Condition.Bluetooth -> {
+            val hit = if (condition.address.isBlank()) connectedDevices.isNotEmpty()
+            else connectedDevices.any { it.equals(condition.address, ignoreCase = true) }
+            hit == condition.connected
+        }
+
+        is Condition.Wifi -> wifiUp == condition.connected
+
+        is Condition.TimeRange -> {
+            val now = java.time.LocalTime.now().let { it.hour * 60 + it.minute }
+            val from = condition.fromMinute
+            val to = condition.toMinute
+            // from이 to보다 크면 자정을 넘기는 구간이다
+            val inside = if (from <= to) now in from..to else now >= from || now <= to
+            inside == condition.inside
+        }
+
+        is Condition.Battery -> {
+            val manager = getSystemService(android.os.BatteryManager::class.java)
+            val level = manager?.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
+            val charging = manager?.isCharging ?: false
+            level in condition.atLeast..condition.atMost &&
+                (condition.charging == null || condition.charging == charging)
+        }
+
+        is Condition.Place -> {
+            val here = lastKnownPlace()
+            if (here == null) {
+                RunLog.add("위치를 알 수 없어 조건을 넘기지 못함 · 위치 권한을 확인하세요")
+                false
+            } else {
+                val away = FloatArray(1)
+                android.location.Location.distanceBetween(
+                    here.first, here.second, condition.latitude, condition.longitude, away
+                )
+                (away[0] <= condition.radiusMeters) == condition.inside
+            }
+        }
+    }
+
+    /** 마지막으로 알려진 위치. 없거나 권한이 없으면 null */
+    private fun lastKnownPlace(): Pair<Double, Double>? {
+        if (checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION)
+            != android.content.pm.PackageManager.PERMISSION_GRANTED &&
+            checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION)
+            != android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) return null
+
+        val manager = getSystemService(android.location.LocationManager::class.java) ?: return null
+        return runCatching {
+            manager.getProviders(true)
+                .mapNotNull { manager.getLastKnownLocation(it) }
+                .maxByOrNull { it.time }
+                ?.let { it.latitude to it.longitude }
+        }.getOrNull()
     }
 
     /**
@@ -185,11 +250,18 @@ class MacroService : NotificationListenerService() {
             // ponytail: 긴 대기는 도즈 모드에서 늘어질 수 있다. 분 단위 정확도가 필요해지면 AlarmManager로 교체
             is Action.Delay -> if (!force) delay(action.seconds * 1000L)
 
+            // 옛 매크로에만 남아 있다. "그 상태면 멈춤"이므로 뒤집어 넘긴다
             is Action.StopIfBluetooth -> {
                 if (force) return true
-                val hit = if (action.address.isBlank()) connectedDevices.isNotEmpty()
-                else connectedDevices.any { it.equals(action.address, ignoreCase = true) }
-                if (hit == action.connected) return false
+                val ok = evaluate(
+                    Condition.Bluetooth(action.address, action.deviceName, !action.connected)
+                )
+                if (!ok) return false
+            }
+
+            is Action.StopUnless -> {
+                if (force) return true
+                if (!evaluate(action.condition)) return false
             }
 
             is Action.ClearNotification -> {

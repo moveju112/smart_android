@@ -590,14 +590,14 @@ private fun NewMacroDialog(onPick: (Macro) -> Unit, onClose: () -> Unit) {
             "알림 지우기", "성가신 알림을 정해둔 시간 뒤에 자동으로 지웁니다",
             Macro(
                 id = id, name = "알림 지우기",
-                trigger = Trigger.Notification(),
+                triggers = listOf(Trigger.Notification()),
                 // 0초면 알림이 뜨자마자 사라져 눈으로 볼 새가 없다
                 actions = listOf(Action.Delay(5), Action.ClearNotification())
             )
         ),
         Triple(
             "직접 짜기", "알림·블루투스·와이파이를 조건으로 단계를 엮습니다",
-            Macro(id = id, name = "새 매크로", trigger = Trigger.Notification())
+            Macro(id = id, name = "새 매크로", triggers = listOf(Trigger.Notification()))
         )
     )
     AlertDialog(

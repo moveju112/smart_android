@@ -11,6 +11,11 @@
     <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
     <!-- 와이파이 연결/해제 감지 -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- "이 자리일 때만" 조건. 위치를 새로 잡지 않고 마지막으로 알려진 값만 읽는다 -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <!-- 매크로가 배경에서 돌 때도 그 값을 읽어야 한다 -->
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
     <!-- 매크로를 만들 때 설치된 앱 목록에서 고르기 위함 -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
 

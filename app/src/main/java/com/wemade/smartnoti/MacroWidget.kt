@@ -134,7 +134,7 @@ class MacroWidget : AppWidgetProvider() {
             views.setTextViewText(R.id.widget_name, macro?.name ?: "매크로 없음")
             views.setTextViewText(
                 R.id.widget_hint,
-                macro?.trigger?.summary() ?: "눌러서 다시 지정하세요"
+                macro?.firstTrigger()?.summary() ?: "눌러서 다시 지정하세요"
             )
 
             val intent = Intent(context, MacroWidget::class.java).apply {
@@ -218,7 +218,7 @@ private fun WidgetConfigScreen(onPick: (Macro) -> Unit) {
                     Column(Modifier.padding(14.dp)) {
                         Text(macro.name, style = MaterialTheme.typography.titleMedium)
                         Text(
-                            macro.trigger.summary(),
+                            macro.oneLine(),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )

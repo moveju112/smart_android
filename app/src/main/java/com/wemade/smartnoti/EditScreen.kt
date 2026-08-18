@@ -4,6 +4,8 @@ import android.Manifest
 import android.bluetooth.BluetoothManager
 import android.content.Context
 import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -429,8 +431,50 @@ private fun LazyListScope.advancedSections(
     onChange: (Macro) -> Unit
 ) {
     item {
-        Section(1, "언제", "이 일이 생기면 매크로가 돕니다") {
-            TriggerEditor(draft.trigger) { onChange(draft.copy(trigger = it)) }
+        val triggers = draft.allTriggers()
+        Section(
+            1, "언제",
+            if (triggers.size > 1) "이 중 하나라도 생기면 매크로가 돕니다" else "이 일이 생기면 매크로가 돕니다"
+        ) {
+            triggers.forEachIndexed { index, trigger ->
+                if (index > 0) {
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    Text(
+                        "또는",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+                if (triggers.size > 1) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "트리거 ${index + 1}",
+                            style = MonoSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f)
+                        )
+                        IconButton(onClick = {
+                            onChange(draft.withTriggers(triggers.filterIndexed { i, _ -> i != index }))
+                        }) {
+                            Icon(
+                                Icons.Default.Close, "트리거 빼기",
+                                Modifier.size(18.dp), tint = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    }
+                }
+                TriggerEditor(trigger) { changed ->
+                    onChange(draft.withTriggers(triggers.mapIndexed { i, t -> if (i == index) changed else t }))
+                }
+            }
+            OutlinedButton(
+                onClick = { onChange(draft.withTriggers(triggers + Trigger.Notification())) },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(Icons.Default.Add, null, Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("트리거 추가")
+            }
         }
     }
 
@@ -487,7 +531,7 @@ private fun AddStepButton(onAdd: (Action) -> Unit) {
             Triple("대기", "다음 단계까지 시간을 둡니다", Action.Delay() as Action),
             Triple("알림 삭제", "조건에 맞는 알림을 지웁니다", Action.ClearNotification()),
             Triple("브로드캐스트", "다른 앱에 신호를 보냅니다", Action.Broadcast()),
-            Triple("조건부 중단", "기기 상태가 맞으면 여기서 멈춥니다", Action.StopIfBluetooth())
+            Triple("이럴 때만 계속", "지금 상태가 조건과 다르면 여기서 멈춥니다", Action.StopUnless())
         )
         AlertDialog(
             onDismissRequest = { open = false },
@@ -577,6 +621,7 @@ private fun Action.kindLabel(): String = when (this) {
     is Action.ClearNotification -> "알림 삭제"
     is Action.Broadcast -> "브로드캐스트"
     is Action.StopIfBluetooth -> "조건부 중단"
+    is Action.StopUnless -> "이럴 때만 계속"
 }
 
 // ─────────────────────────── 공통 뼈대 ───────────────────────────
@@ -789,6 +834,10 @@ private fun ActionEditor(action: Action, onChange: (Action) -> Unit) {
             ClearAllWarning(action.packageName, action.text)
         }
 
+        is Action.StopUnless -> {
+            ConditionEditor(action.condition) { onChange(action.copy(condition = it)) }
+        }
+
         is Action.StopIfBluetooth -> {
             DevicePicker(action.address, action.deviceName) { addr, name ->
                 onChange(action.copy(address = addr, deviceName = name))
@@ -837,6 +886,229 @@ private fun ActionEditor(action: Action, onChange: (Action) -> Unit) {
             }
         }
     }
+}
+
+/**
+ * "이럴 때만 계속" 조건을 고르고 채운다.
+ *
+ * 트리거가 일이 벌어진 순간을 잡고, 여기서 그 순간의 상태를 본다.
+ * 둘을 합쳐야 "차에서 내렸고, 집이 아닐 때만" 같은 말이 된다.
+ */
+@Composable
+private fun ConditionEditor(condition: Condition, onChange: (Condition) -> Unit) {
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+        ChoiceChip("와이파이", condition is Condition.Wifi, Modifier.weight(1f)) {
+            if (condition !is Condition.Wifi) onChange(Condition.Wifi())
+        }
+        ChoiceChip("블루투스", condition is Condition.Bluetooth, Modifier.weight(1f)) {
+            if (condition !is Condition.Bluetooth) onChange(Condition.Bluetooth())
+        }
+        ChoiceChip("시간대", condition is Condition.TimeRange, Modifier.weight(1f)) {
+            if (condition !is Condition.TimeRange) onChange(Condition.TimeRange(23 * 60, 7 * 60))
+        }
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+        ChoiceChip("배터리", condition is Condition.Battery, Modifier.weight(1f)) {
+            if (condition !is Condition.Battery) onChange(Condition.Battery())
+        }
+        ChoiceChip("위치", condition is Condition.Place, Modifier.weight(1f)) {
+            if (condition !is Condition.Place) onChange(Condition.Place())
+        }
+        Spacer(Modifier.weight(1f))
+    }
+
+    when (condition) {
+        is Condition.Wifi -> StateSwitch(
+            "와이파이에 붙어 있을 때만", "와이파이에 붙어 있지 않을 때만", condition.connected
+        ) { onChange(condition.copy(connected = it)) }
+
+        is Condition.Bluetooth -> {
+            DevicePicker(condition.address, condition.deviceName) { addr, name ->
+                onChange(condition.copy(address = addr, deviceName = name))
+            }
+            StateSwitch(
+                "이 기기가 붙어 있을 때만", "이 기기가 끊겨 있을 때만", condition.connected
+            ) { onChange(condition.copy(connected = it)) }
+        }
+
+        is Condition.TimeRange -> {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ClockField("부터", condition.fromMinute, Modifier.weight(1f)) {
+                    onChange(condition.copy(fromMinute = it))
+                }
+                ClockField("까지", condition.toMinute, Modifier.weight(1f)) {
+                    onChange(condition.copy(toMinute = it))
+                }
+            }
+            // 자정을 넘기는 구간도 그대로 받는다 (23:00~07:00)
+            Text(
+                condition.summary(),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            StateSwitch("이 시간대일 때만", "이 시간대를 벗어났을 때만", condition.inside) {
+                onChange(condition.copy(inside = it))
+            }
+        }
+
+        is Condition.Battery -> {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                PercentField("최소 %", condition.atLeast, Modifier.weight(1f)) {
+                    onChange(condition.copy(atLeast = it))
+                }
+                PercentField("최대 %", condition.atMost, Modifier.weight(1f)) {
+                    onChange(condition.copy(atMost = it))
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                ChoiceChip("충전 상관없음", condition.charging == null, Modifier.weight(1f)) {
+                    onChange(condition.copy(charging = null))
+                }
+                ChoiceChip("충전 중", condition.charging == true, Modifier.weight(1f)) {
+                    onChange(condition.copy(charging = true))
+                }
+                ChoiceChip("충전 아님", condition.charging == false, Modifier.weight(1f)) {
+                    onChange(condition.copy(charging = false))
+                }
+            }
+        }
+
+        is Condition.Place -> PlaceEditor(condition, onChange)
+    }
+}
+
+/** 시:분을 받는 칸 */
+@Composable
+private fun ClockField(label: String, minuteOfDay: Int, modifier: Modifier = Modifier, onChange: (Int) -> Unit) {
+    OutlinedTextField(
+        value = clockText(minuteOfDay),
+        onValueChange = { raw ->
+            // 숫자만 남겨 HHMM으로 읽는다. 콜론을 손으로 넣지 않아도 된다
+            val digits = raw.filter(Char::isDigit).take(4)
+            if (digits.length == 4) {
+                val h = digits.take(2).toInt().coerceAtMost(23)
+                val m = digits.drop(2).toInt().coerceAtMost(59)
+                onChange(h * 60 + m)
+            }
+        },
+        label = { Text(label) },
+        supportingText = { Text("시분 네 자리") },
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+        modifier = modifier
+    )
+}
+
+@Composable
+private fun PercentField(label: String, value: Int, modifier: Modifier = Modifier, onChange: (Int) -> Unit) {
+    OutlinedTextField(
+        value = value.toString(),
+        onValueChange = { onChange((it.filter(Char::isDigit).take(3).toIntOrNull() ?: 0).coerceIn(0, 100)) },
+        label = { Text(label) },
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+        modifier = modifier
+    )
+}
+
+/**
+ * 자리를 정한다.
+ *
+ * 좌표를 손으로 적을 사람은 없으니 지금 있는 자리를 그대로 담는다.
+ * 위치는 새로 잡지 않고 다른 앱이 이미 받아 둔 마지막 값을 읽어, 배터리를 쓰지 않는다.
+ */
+@Composable
+private fun PlaceEditor(place: Condition.Place, onChange: (Condition.Place) -> Unit) {
+    val context = LocalContextCompat()
+    var problem by remember { mutableStateOf<String?>(null) }
+
+    val askLocation = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { granted ->
+        if (granted.values.any { it }) {
+            val here = lastKnownPlace(context)
+            if (here == null) problem = "아직 위치를 모릅니다. 지도 앱을 한 번 열어 위치를 잡은 뒤 다시 눌러 주세요."
+            else { onChange(place.copy(latitude = here.first, longitude = here.second)); problem = null }
+        } else {
+            problem = "위치 권한이 없으면 이 조건을 쓸 수 없습니다."
+        }
+    }
+
+    OutlinedButton(
+        onClick = {
+            val here = lastKnownPlace(context)
+            if (here != null) {
+                onChange(place.copy(latitude = here.first, longitude = here.second)); problem = null
+            } else {
+                askLocation.launch(
+                    arrayOf(
+                        Manifest.permission.ACCESS_FINE_LOCATION,
+                        Manifest.permission.ACCESS_COARSE_LOCATION
+                    )
+                )
+            }
+        },
+        modifier = Modifier.fillMaxWidth()
+    ) { Text("지금 있는 자리로 정하기") }
+
+    OutlinedTextField(
+        value = place.label,
+        onValueChange = { onChange(place.copy(label = it)) },
+        label = { Text("자리 이름") },
+        supportingText = { Text("집, 회사처럼 알아볼 이름") },
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth()
+    )
+
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            if (place.latitude == 0.0 && place.longitude == 0.0) "아직 자리를 정하지 않았습니다"
+            else "%.5f, %.5f".format(place.latitude, place.longitude),
+            style = MonoSmall,
+            color = if (place.latitude == 0.0) MaterialTheme.colorScheme.error
+            else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f)
+        )
+    }
+
+    OutlinedTextField(
+        value = place.radiusMeters.toString(),
+        onValueChange = { onChange(place.copy(radiusMeters = (it.filter(Char::isDigit).take(5).toIntOrNull() ?: 0).coerceAtLeast(20))) },
+        label = { Text("반경 (m)") },
+        supportingText = { Text("마지막으로 알려진 위치를 쓰므로 넉넉하게 두세요") },
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+        modifier = Modifier.fillMaxWidth()
+    )
+
+    StateSwitch("이 자리 안일 때만", "이 자리 밖일 때만", place.inside) {
+        onChange(place.copy(inside = it))
+    }
+
+    // 매크로는 배경에서 돈다. 위치는 "앱 사용 중에만" 허용이면 그때 읽지 못한다
+    Text(
+        "설정 → 앱 → 위치를 \"항상 허용\"으로 두어야 배경에서도 이 조건을 볼 수 있습니다.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+
+    problem?.let {
+        Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+    }
+}
+
+/** 마지막으로 알려진 위치. 권한이 없거나 아직 잡힌 적이 없으면 null */
+private fun lastKnownPlace(context: Context): Pair<Double, Double>? {
+    if (context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
+        context.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED
+    ) return null
+    val manager = context.getSystemService(android.location.LocationManager::class.java) ?: return null
+    return runCatching {
+        manager.getProviders(true)
+            .mapNotNull { manager.getLastKnownLocation(it) }
+            .maxByOrNull { it.time }
+            ?.let { it.latitude to it.longitude }
+    }.getOrNull()
 }
 
 // ─────────────────────────── 고르기 창 ───────────────────────────
