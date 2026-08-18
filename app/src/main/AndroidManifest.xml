@@ -4,6 +4,8 @@
     <!-- 새 버전이 나왔는지 GitHub에 물어보고, 받은 APK로 스스로를 갈아끼우기 위함 -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- 이 권한이 있어야 두 번째 갱신부터 확인 화면 없이 스스로 갈아끼울 수 있다 -->
+    <uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION" />
     <!-- 블루투스 연결/해제 감지 (안드로이드 12+는 런타임 승인 필요) -->
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
