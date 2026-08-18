@@ -4,6 +4,8 @@ import android.Manifest
 import android.bluetooth.BluetoothManager
 import android.content.Context
 import android.content.pm.PackageManager
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -13,24 +15,34 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -48,16 +60,27 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.text.KeyboardOptions
 
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.unit.dp
+
+/**
+ * 매크로 편집. 두 갈래로 나뉜다.
+ *
+ * 쓰던 매크로 대부분이 "이 알림 뜨면 좀 있다 지우기" 한 가지 모양이라,
+ * 그 모양은 칸 세 개짜리 화면으로 따로 다룬다. 나머지만 단계를 직접 엮는다.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EditScreen(macro: Macro, onSave: (Macro) -> Unit, onDelete: () -> Unit, onCancel: () -> Unit) {
     var draft by remember { mutableStateOf(macro) }
+    var rule by remember { mutableStateOf(macro.asClearRule() ?: ClearRule()) }
+    var simple by remember { mutableStateOf(macro.asClearRule() != null) }
     var confirmDelete by remember { mutableStateOf(false) }
+
+    // 지금 화면의 내용을 저장할 매크로 한 개로 모은다
+    fun collect(): Macro = if (simple) draft.withClearRule(rule) else draft
 
     if (confirmDelete) {
         AlertDialog(
@@ -77,180 +100,439 @@ fun EditScreen(macro: Macro, onSave: (Macro) -> Unit, onDelete: () -> Unit, onCa
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text("매크로 편집") },
+                title = { Text(if (simple) "알림 지우기" else "직접 짜기") },
                 navigationIcon = {
-                    IconButton(onClick = onCancel) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "뒤로") }
+                    IconButton(onClick = onCancel) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "뒤로")
+                    }
                 },
-                actions = {
-                    TextButton(onClick = { onSave(draft) }) { Text("저장") }
-                }
+                actions = { TextButton(onClick = { onSave(collect()) }) { Text("저장") } }
             )
         }
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.TopCenter) {
-        LazyColumn(
-            modifier = Modifier.widthIn(max = 720.dp).fillMaxSize(),
-            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            item {
-                OutlinedTextField(
-                    value = draft.name,
-                    onValueChange = { draft = draft.copy(name = it) },
-                    label = { Text("이름") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-
-            item { SectionHeader("언제", "이 일이 생기면 매크로가 돕니다") }
-            item {
-                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        TriggerEditor(draft.trigger) { draft = draft.copy(trigger = it) }
-                    }
+            LazyColumn(
+                modifier = Modifier.widthIn(max = 720.dp).fillMaxSize(),
+                contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = 4.dp, bottom = 32.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                item {
+                    OutlinedTextField(
+                        value = draft.name,
+                        onValueChange = { draft = draft.copy(name = it) },
+                        label = { Text("이름") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 }
-            }
 
-            item { SectionHeader("무엇을", "위에서 아래로 차례대로 실행합니다") }
-            items(draft.actions.size, key = { it }) { index ->
-                ActionCard(
-                    index = index,
-                    total = draft.actions.size,
-                    action = draft.actions[index],
-                    onChange = { changed ->
-                        draft = draft.copy(actions = draft.actions.mapIndexed { i, a -> if (i == index) changed else a })
-                    },
-                    onRemove = {
-                        draft = draft.copy(actions = draft.actions.filterIndexed { i, _ -> i != index })
-                    },
-                    onMove = { delta ->
-                        val to = index + delta
-                        if (to in draft.actions.indices) {
-                            val list = draft.actions.toMutableList()
-                            list.add(to, list.removeAt(index))
-                            draft = draft.copy(actions = list)
+                item {
+                    ModeSwitch(
+                        simple = simple,
+                        // 단계를 직접 엮어 둔 매크로는 한 장짜리 화면으로 접을 수 없다
+                        simpleAvailable = simple || draft.asClearRule() != null,
+                        onSimple = { rule = draft.asClearRule() ?: rule; simple = true },
+                        onAdvanced = { draft = draft.withClearRule(rule); simple = false }
+                    )
+                }
+
+                if (simple) {
+                    clearRuleSections(rule) { rule = it }
+                } else {
+                    advancedSections(draft) { draft = it }
+                }
+
+                item {
+                    Row(
+                        Modifier.padding(top = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Button(onClick = { onSave(collect()) }, modifier = Modifier.weight(1f)) {
+                            Text("저장")
+                        }
+                        OutlinedButton(onClick = { confirmDelete = true }) {
+                            Text("지우기", color = MaterialTheme.colorScheme.error)
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+/** 어느 방식으로 다룰지. 고른 쪽이 채워져 한눈에 보인다 */
+@Composable
+private fun ModeSwitch(
+    simple: Boolean,
+    simpleAvailable: Boolean,
+    onSimple: () -> Unit,
+    onAdvanced: () -> Unit
+) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        ChoiceChip("알림 지우기", simple, Modifier.weight(1f), enabled = simpleAvailable, onClick = onSimple)
+        ChoiceChip("직접 짜기", !simple, Modifier.weight(1f), onClick = onAdvanced)
+    }
+}
+
+/**
+ * 무엇을 고르는 칩. 고른 것은 청록으로 채운다.
+ * 앰버는 이 앱에서 시간을 뜻하므로 시간 고르기([DelayPicker])에만 남겨 둔다.
+ */
+@Composable
+private fun ChoiceChip(
+    label: String,
+    selected: Boolean,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    time: Boolean = false,
+    onClick: () -> Unit
+) {
+    val scheme = MaterialTheme.colorScheme
+    FilterChip(
+        selected = selected,
+        enabled = enabled,
+        onClick = onClick,
+        label = { Text(label) },
+        colors = FilterChipDefaults.filterChipColors(
+            selectedContainerColor = if (time) scheme.secondaryContainer else scheme.primaryContainer,
+            selectedLabelColor = if (time) scheme.onSecondaryContainer else scheme.onPrimaryContainer
+        ),
+        modifier = modifier
+    )
+}
+
+// ─────────────────────────── 알림 지우기 (간단) ───────────────────────────
+
+/** 칸 세 개로 끝난다 — 어떤 알림을, 언제, 까다로운 알림까지 건드릴지 */
+private fun LazyListScope.clearRuleSections(
+    rule: ClearRule,
+    onChange: (ClearRule) -> Unit
+) {
+    item {
+        Section(1, "어떤 알림을", "지우려는 알림을 띄워 둔 채로 고르면 가장 정확합니다") {
+            LiveNotificationPicker { pkg, title, text, clearable ->
+                onChange(
+                    rule.copy(
+                        packageName = pkg,
+                        appLabel = "",
+                        text = text.ifBlank { title },
+                        // 지울 수 없는 알림을 골랐다면 그걸 지우겠다는 뜻이다
+                        includeOngoing = rule.includeOngoing || !clearable
+                    )
                 )
             }
-
-            item {
-                fun add(action: Action) { draft = draft.copy(actions = draft.actions + action) }
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        OutlinedButton(onClick = { add(Action.Delay()) }, modifier = Modifier.weight(1f)) { Text("대기") }
-                        OutlinedButton(onClick = { add(Action.ClearNotification()) }, modifier = Modifier.weight(1f)) { Text("알림 삭제") }
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        OutlinedButton(onClick = { add(Action.Broadcast()) }, modifier = Modifier.weight(1f)) { Text("브로드캐스트") }
-                        OutlinedButton(onClick = { add(Action.StopIfBluetooth()) }, modifier = Modifier.weight(1f)) { Text("조건부 중단") }
-                    }
-                }
+            AppPicker(rule.packageName, rule.appLabel) { pkg, label ->
+                onChange(rule.copy(packageName = pkg, appLabel = label))
             }
+            OutlinedTextField(
+                value = rule.text,
+                onValueChange = { onChange(rule.copy(text = it)) },
+                label = { Text("알림에 들어 있는 말") },
+                supportingText = { Text("비우면 그 앱의 알림을 전부 지웁니다") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+    }
 
-            item {
-                Spacer(Modifier.padding(top = 12.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { onSave(draft) }, modifier = Modifier.weight(1f)) { Text("저장") }
-                    OutlinedButton(onClick = { confirmDelete = true }) {
-                        Text("지우기", color = MaterialTheme.colorScheme.error)
-                    }
-                }
+    item {
+        Section(2, "언제 지울지", "너무 빨리 지우면 알림을 보지도 못합니다") {
+            DelayPicker(rule.seconds) { onChange(rule.copy(seconds = it)) }
+        }
+    }
+
+    item {
+        Section(3, "잘 안 지워질 때", null) {
+            SwitchRow(
+                title = "지울 수 없는 알림도 지우기",
+                hint = "진행 중 표시라 손으로도 못 지우는 알림까지 건드립니다.",
+                checked = rule.includeOngoing
+            ) { onChange(rule.copy(includeOngoing = it)) }
+        }
+    }
+}
+
+/** 자주 쓰는 시간은 눌러서 고르고, 없으면 직접 적는다. 셋씩 두 줄로 떨어진다 */
+@Composable
+private fun DelayPicker(seconds: Int, onChange: (Int) -> Unit) {
+    val presets = listOf(0 to "바로", 5 to "5초", 15 to "15초", 30 to "30초", 60 to "1분")
+    var custom by remember { mutableStateOf(presets.none { it.first == seconds }) }
+
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+        presets.take(3).forEach { (value, label) ->
+            ChoiceChip(label, !custom && seconds == value, Modifier.weight(1f), time = true) {
+                custom = false; onChange(value)
             }
         }
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+        presets.drop(3).forEach { (value, label) ->
+            ChoiceChip(label, !custom && seconds == value, Modifier.weight(1f), time = true) {
+                custom = false; onChange(value)
+            }
         }
+        ChoiceChip("직접", custom, Modifier.weight(1f), time = true) { custom = true }
+    }
+    if (custom) {
+        SecondsField(seconds, onChange)
     }
 }
 
 @Composable
-private fun SectionHeader(title: String, hint: String) {
-    Column(Modifier.padding(top = 10.dp, start = 4.dp)) {
-        Text(
-            title.uppercase(),
-            style = MaterialTheme.typography.titleSmall,
-            color = MaterialTheme.colorScheme.primary
+private fun SecondsField(seconds: Int, onChange: (Int) -> Unit) {
+    OutlinedTextField(
+        value = seconds.toString(),
+        onValueChange = { onChange(it.filter(Char::isDigit).take(6).toIntOrNull() ?: 0) },
+        label = { Text("몇 초 뒤") },
+        supportingText = { Text(humanSeconds(seconds)) },
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+        modifier = Modifier.fillMaxWidth()
+    )
+}
+
+// ─────────────────────────── 직접 짜기 (고급) ───────────────────────────
+
+private fun LazyListScope.advancedSections(
+    draft: Macro,
+    onChange: (Macro) -> Unit
+) {
+    item {
+        Section(1, "언제", "이 일이 생기면 매크로가 돕니다") {
+            TriggerEditor(draft.trigger) { onChange(draft.copy(trigger = it)) }
+        }
+    }
+
+    item { SectionHeading(2, "무엇을", "위에서 아래로 차례대로 실행합니다") }
+
+    items(draft.actions.size, key = { it }) { index ->
+        ActionCard(
+            index = index,
+            total = draft.actions.size,
+            action = draft.actions[index],
+            onEdit = { changed ->
+                onChange(draft.copy(actions = draft.actions.mapIndexed { i, a -> if (i == index) changed else a }))
+            },
+            onRemove = {
+                onChange(draft.copy(actions = draft.actions.filterIndexed { i, _ -> i != index }))
+            },
+            onMove = { delta ->
+                val to = index + delta
+                if (to in draft.actions.indices) {
+                    val list = draft.actions.toMutableList()
+                    list.add(to, list.removeAt(index))
+                    onChange(draft.copy(actions = list))
+                }
+            }
         )
-        Text(hint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+
+    item {
+        AddStepButton { onChange(draft.copy(actions = draft.actions + it)) }
     }
 }
 
-/** 액션 한 칸. 순서가 곧 실행 순서라 위아래로 옮길 수 있게 둔다 */
+/** 단계는 네 가지뿐이라, 버튼 넉 장을 늘어놓는 대신 한 번 눌러 설명과 함께 고르게 한다 */
+@Composable
+private fun AddStepButton(onAdd: (Action) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+
+    OutlinedButton(onClick = { open = true }, modifier = Modifier.fillMaxWidth()) {
+        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(6.dp))
+        Text("단계 추가")
+    }
+
+    if (open) {
+        val choices = listOf(
+            Triple("대기", "다음 단계까지 시간을 둡니다", Action.Delay() as Action),
+            Triple("알림 삭제", "조건에 맞는 알림을 지웁니다", Action.ClearNotification()),
+            Triple("브로드캐스트", "다른 앱에 신호를 보냅니다", Action.Broadcast()),
+            Triple("조건부 중단", "기기 상태가 맞으면 여기서 멈춥니다", Action.StopIfBluetooth())
+        )
+        AlertDialog(
+            onDismissRequest = { open = false },
+            title = { Text("어떤 단계를 넣을까요?") },
+            text = {
+                Column {
+                    choices.forEachIndexed { i, (label, hint, action) ->
+                        if (i > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        Column(
+                            Modifier.fillMaxWidth()
+                                .clickable { onAdd(action); open = false }
+                                .padding(vertical = 10.dp)
+                        ) {
+                            Text(label, style = MaterialTheme.typography.titleMedium)
+                            Text(
+                                hint,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { open = false }) { Text("닫기") } }
+        )
+    }
+}
+
+/** 단계 한 칸. 순서가 곧 실행 순서라 위아래로 옮길 수 있게 둔다 */
 @Composable
 private fun ActionCard(
     index: Int,
     total: Int,
     action: Action,
-    onChange: (Action) -> Unit,
+    onEdit: (Action) -> Unit,
     onRemove: () -> Unit,
     onMove: (Int) -> Unit
 ) {
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-        Column(Modifier.padding(start = 12.dp, end = 4.dp, top = 6.dp, bottom = 12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                StepBadge(action.step())
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    "${index + 1} / $total",
-                    style = MonoSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.weight(1f)
-                )
-                IconButton(onClick = { onMove(-1) }, enabled = index > 0) {
-                    Icon(Icons.Default.ArrowUpward, contentDescription = "위로", modifier = Modifier.size(18.dp))
-                }
-                IconButton(onClick = { onMove(1) }, enabled = index < total - 1) {
-                    Icon(Icons.Default.ArrowDownward, contentDescription = "아래로", modifier = Modifier.size(18.dp))
-                }
-                IconButton(onClick = onRemove) {
-                    Icon(
-                        Icons.Default.Close,
-                        contentDescription = "액션 빼기",
-                        modifier = Modifier.size(18.dp),
-                        tint = MaterialTheme.colorScheme.error
+    val scheme = MaterialTheme.colorScheme
+    val (kind, accent) = when (action.step()) {
+        Step.Wait -> "대기" to scheme.secondary
+        Step.Gate -> "조건" to scheme.primary
+        else -> "실행" to scheme.onSurfaceVariant
+    }
+
+    Card(colors = CardDefaults.cardColors(containerColor = scheme.surface)) {
+        Row(Modifier.fillMaxWidth()) {
+            // 단계의 성격을 왼쪽 색 띠로 — 대기·조건·실행이 목록에서 바로 갈린다
+            Box(Modifier.width(4.dp).heightIn(min = 56.dp).background(accent))
+            Column(Modifier.padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 12.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "${index + 1}",
+                        style = MonoSmall,
+                        color = scheme.onSurfaceVariant
                     )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        "$kind · ${action.kindLabel()}",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = scheme.onSurface,
+                        modifier = Modifier.weight(1f)
+                    )
+                    IconButton(onClick = { onMove(-1) }, enabled = index > 0) {
+                        Icon(Icons.Default.ArrowUpward, "위로", Modifier.size(18.dp))
+                    }
+                    IconButton(onClick = { onMove(1) }, enabled = index < total - 1) {
+                        Icon(Icons.Default.ArrowDownward, "아래로", Modifier.size(18.dp))
+                    }
+                    IconButton(onClick = onRemove) {
+                        Icon(Icons.Default.Close, "단계 빼기", Modifier.size(18.dp), tint = scheme.error)
+                    }
                 }
-            }
-            Column(
-                Modifier.padding(end = 8.dp, top = 2.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                ActionEditor(action, onChange)
+                Column(
+                    Modifier.padding(end = 8.dp, top = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    ActionEditor(action, onEdit)
+                }
             }
         }
     }
 }
 
-/** 액션의 성격을 한눈에 — 시간은 앰버, 조건은 테두리만, 나머지는 채운 사각 */
+private fun Action.kindLabel(): String = when (this) {
+    is Action.Delay -> "시간 두기"
+    is Action.ClearNotification -> "알림 삭제"
+    is Action.Broadcast -> "브로드캐스트"
+    is Action.StopIfBluetooth -> "조건부 중단"
+}
+
+// ─────────────────────────── 공통 뼈대 ───────────────────────────
+
+/**
+ * 섹션 한 덩어리. 번호 + 제목 + 카드로 묶어 어디까지가 한 가지 일인지 보이게 한다.
+ * 화면이 난잡했던 건 칸은 많은데 무엇끼리 한 묶음인지가 없어서였다.
+ */
 @Composable
-private fun StepBadge(step: Step) {
-    val scheme = MaterialTheme.colorScheme
-    val (label, color) = when (step) {
-        Step.Wait -> "대기" to scheme.secondary
-        Step.Gate -> "조건" to scheme.primary
-        else -> "실행" to scheme.onSurfaceVariant
+private fun Section(
+    number: Int,
+    title: String,
+    hint: String?,
+    content: @Composable () -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        SectionHeading(number, title, hint)
+        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+            Column(
+                Modifier.padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) { content() }
+        }
     }
-    Text(label, style = MonoSmall.copy(fontFamily = FontFamily.Monospace), color = color)
 }
 
 @Composable
+private fun SectionHeading(number: Int, title: String, hint: String? = null) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        NumberBadge(number)
+        Spacer(Modifier.width(10.dp))
+        Column {
+            Text(title, style = MaterialTheme.typography.titleMedium)
+            if (hint != null) {
+                Text(
+                    hint,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun NumberBadge(number: Int) {
+    val scheme = MaterialTheme.colorScheme
+    Box(
+        Modifier.size(22.dp).background(scheme.primary, CircleShape),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            number.toString(),
+            style = MonoSmall.copy(fontFamily = FontFamily.Monospace),
+            color = scheme.onPrimary
+        )
+    }
+}
+
+@Composable
+private fun SwitchRow(title: String, hint: String?, checked: Boolean, onChange: (Boolean) -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyMedium)
+            if (hint != null) {
+                Text(
+                    hint,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        Switch(checked = checked, onCheckedChange = onChange)
+    }
+}
+
+@Composable
+private fun StateSwitch(onLabel: String, offLabel: String, value: Boolean, onChange: (Boolean) -> Unit) {
+    SwitchRow(title = if (value) onLabel else offLabel, hint = null, checked = value, onChange = onChange)
+}
+
+// ─────────────────────────── 트리거·액션 편집 ───────────────────────────
+
+@Composable
 private fun TriggerEditor(trigger: Trigger, onChange: (Trigger) -> Unit) {
-    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        FilterChip(
-            selected = trigger is Trigger.Notification,
-            onClick = { if (trigger !is Trigger.Notification) onChange(Trigger.Notification()) },
-            label = { Text("알림") }
-        )
-        FilterChip(
-            selected = trigger is Trigger.Bluetooth,
-            onClick = { if (trigger !is Trigger.Bluetooth) onChange(Trigger.Bluetooth()) },
-            label = { Text("블루투스") }
-        )
-        FilterChip(
-            selected = trigger is Trigger.Wifi,
-            onClick = { if (trigger !is Trigger.Wifi) onChange(Trigger.Wifi()) },
-            label = { Text("와이파이") }
-        )
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+        ChoiceChip("알림", trigger is Trigger.Notification, Modifier.weight(1f)) {
+            if (trigger !is Trigger.Notification) onChange(Trigger.Notification())
+        }
+        ChoiceChip("블루투스", trigger is Trigger.Bluetooth, Modifier.weight(1f)) {
+            if (trigger !is Trigger.Bluetooth) onChange(Trigger.Bluetooth())
+        }
+        ChoiceChip("와이파이", trigger is Trigger.Wifi, Modifier.weight(1f)) {
+            if (trigger !is Trigger.Wifi) onChange(Trigger.Wifi())
+        }
     }
 
     when (trigger) {
@@ -275,49 +557,30 @@ private fun TriggerEditor(trigger: Trigger, onChange: (Trigger) -> Unit) {
             DevicePicker(trigger.address, trigger.deviceName) { addr, name ->
                 onChange(trigger.copy(address = addr, deviceName = name))
             }
-            StateSwitch(
-                onLabel = "기기가 연결될 때",
-                offLabel = "기기가 끊길 때",
-                value = trigger.connected
-            ) { onChange(trigger.copy(connected = it)) }
+            StateSwitch("기기가 연결될 때", "기기가 끊길 때", trigger.connected) {
+                onChange(trigger.copy(connected = it))
+            }
         }
-        is Trigger.Wifi -> StateSwitch(
-            onLabel = "와이파이가 연결될 때",
-            offLabel = "와이파이가 끊길 때",
-            value = trigger.connected
-        ) { onChange(trigger.copy(connected = it)) }
-    }
-}
-
-@Composable
-private fun StateSwitch(onLabel: String, offLabel: String, value: Boolean, onChange: (Boolean) -> Unit) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(if (value) onLabel else offLabel, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-        Switch(checked = value, onCheckedChange = onChange)
+        is Trigger.Wifi -> StateSwitch("와이파이가 연결될 때", "와이파이가 끊길 때", trigger.connected) {
+            onChange(trigger.copy(connected = it))
+        }
     }
 }
 
 @Composable
 private fun ActionEditor(action: Action, onChange: (Action) -> Unit) {
     when (action) {
-        is Action.Delay -> OutlinedTextField(
-            value = action.seconds.toString(),
-            onValueChange = { onChange(action.copy(seconds = it.filter { c -> c.isDigit() }.take(6).toIntOrNull() ?: 0)) },
-            label = { Text("몇 초 기다릴지") },
-            supportingText = { Text(humanSeconds(action.seconds)) },
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            modifier = Modifier.fillMaxWidth()
-        )
+        is Action.Delay -> {
+            DelayPicker(action.seconds) { onChange(action.copy(seconds = it)) }
+        }
 
         is Action.ClearNotification -> {
-            LiveNotificationPicker { pkg, title, text, clearable ->
+            LiveNotificationPicker(emphasis = false) { pkg, title, text, clearable ->
                 onChange(
                     action.copy(
                         packageName = pkg,
                         appLabel = "",
                         text = text.ifBlank { title },
-                        // 지울 수 없는 알림을 골랐다면 그걸 지우겠다는 뜻이다
                         includeOngoing = action.includeOngoing || !clearable
                     )
                 )
@@ -333,20 +596,11 @@ private fun ActionEditor(action: Action, onChange: (Action) -> Unit) {
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("지울 수 없는 알림도 지우기", style = MaterialTheme.typography.bodyMedium)
-                    Text(
-                        "진행 중 표시라 손으로도 못 지우는 알림까지 건드립니다.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                Switch(
-                    checked = action.includeOngoing,
-                    onCheckedChange = { onChange(action.copy(includeOngoing = it)) }
-                )
-            }
+            SwitchRow(
+                title = "지울 수 없는 알림도 지우기",
+                hint = "진행 중 표시라 손으로도 못 지우는 알림까지 건드립니다.",
+                checked = action.includeOngoing
+            ) { onChange(action.copy(includeOngoing = it)) }
         }
 
         is Action.StopIfBluetooth -> {
@@ -354,9 +608,9 @@ private fun ActionEditor(action: Action, onChange: (Action) -> Unit) {
                 onChange(action.copy(address = addr, deviceName = name))
             }
             StateSwitch(
-                onLabel = "이 기기가 연결돼 있으면 여기서 멈춤",
-                offLabel = "이 기기가 끊겨 있으면 여기서 멈춤",
-                value = action.connected
+                "이 기기가 연결돼 있으면 여기서 멈춤",
+                "이 기기가 끊겨 있으면 여기서 멈춤",
+                action.connected
             ) { onChange(action.copy(connected = it)) }
         }
 
@@ -399,25 +653,34 @@ private fun ActionEditor(action: Action, onChange: (Action) -> Unit) {
     }
 }
 
-/** 1800초가 몇 분인지 사람이 세지 않게 한다 */
-private fun humanSeconds(seconds: Int): String = when {
-    seconds <= 0 -> "기다리지 않음"
-    seconds < 60 -> "${seconds}초"
-    seconds % 3600 == 0 -> "${seconds / 3600}시간"
-    seconds % 60 == 0 -> "${seconds / 60}분"
-    else -> "${seconds / 60}분 ${seconds % 60}초"
-}
+// ─────────────────────────── 고르기 창 ───────────────────────────
 
 /**
  * 지금 떠 있는 알림에서 골라 앱과 문구를 한 번에 채운다.
  * 문구를 손으로 맞추다 틀리는 일이 가장 흔한 실패라서 둔 길이다.
  */
 @Composable
-private fun LiveNotificationPicker(onPick: (pkg: String, title: String, text: String, clearable: Boolean) -> Unit) {
+private fun LiveNotificationPicker(
+    emphasis: Boolean = true,
+    onPick: (pkg: String, title: String, text: String, clearable: Boolean) -> Unit
+) {
     var open by remember { mutableStateOf(false) }
+    val scheme = MaterialTheme.colorScheme
 
-    OutlinedButton(onClick = { open = true }, modifier = Modifier.fillMaxWidth()) {
-        Text("지금 떠 있는 알림에서 고르기")
+    // 한 화면에 두 번 나올 수 있다. 주 동작일 때만 채우고, 곁다리일 때는 테두리만 둔다
+    if (emphasis) {
+        FilledTonalButton(
+            onClick = { open = true },
+            colors = ButtonDefaults.filledTonalButtonColors(
+                containerColor = scheme.primaryContainer,
+                contentColor = scheme.onPrimaryContainer
+            ),
+            modifier = Modifier.fillMaxWidth().height(46.dp)
+        ) { Text("지금 떠 있는 알림에서 고르기") }
+    } else {
+        OutlinedButton(onClick = { open = true }, modifier = Modifier.fillMaxWidth()) {
+            Text("알림에서 고르기")
+        }
     }
 
     if (open) {
@@ -439,10 +702,7 @@ private fun LiveNotificationPicker(onPick: (pkg: String, title: String, text: St
                                     }
                                     .padding(vertical = 8.dp)
                             ) {
-                                Text(
-                                    peek.title.ifBlank { "(제목 없음)" },
-                                    style = MaterialTheme.typography.bodyMedium
-                                )
+                                Text(peek.title.ifBlank { "(제목 없음)" }, style = MaterialTheme.typography.bodyMedium)
                                 if (peek.text.isNotBlank()) {
                                     Text(peek.text, style = MaterialTheme.typography.bodySmall)
                                 }
@@ -462,19 +722,35 @@ private fun LiveNotificationPicker(onPick: (pkg: String, title: String, text: St
     }
 }
 
+/** 고른 값을 그 자리에 보여주는 칸. 눌러야 뭐가 들었는지 아는 버튼은 두지 않는다 */
+@Composable
+private fun PickerField(label: String, value: String, detail: String?, onClick: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    Column(
+        Modifier.fillMaxWidth()
+            .border(1.dp, scheme.outline, RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 10.dp)
+    ) {
+        Text(label, style = MonoSmall, color = scheme.onSurfaceVariant)
+        Text(value, style = MaterialTheme.typography.bodyMedium, color = scheme.onSurface)
+        if (!detail.isNullOrBlank()) {
+            Text(detail, style = MonoSmall, color = scheme.onSurfaceVariant)
+        }
+    }
+}
+
 @Composable
 private fun AppPicker(packageName: String, appLabel: String, onPick: (String, String) -> Unit) {
     val context = LocalContextCompat()
     var open by remember { mutableStateOf(false) }
 
-    OutlinedButton(onClick = { open = true }, modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.fillMaxWidth()) {
-            Text(appLabel.ifBlank { if (packageName.isBlank()) "앱 고르기 — 지금은 모든 앱" else packageName })
-            if (packageName.isNotBlank()) {
-                Text(packageName, style = MonoSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
-    }
+    PickerField(
+        label = "앱",
+        value = appLabel.ifBlank { if (packageName.isBlank()) "모든 앱" else packageName },
+        detail = packageName.takeIf { it.isNotBlank() && appLabel.isNotBlank() },
+        onClick = { open = true }
+    )
 
     if (open) {
         val apps = remember { installedApps(context) }
@@ -519,14 +795,12 @@ private fun DevicePicker(address: String, deviceName: String, onPick: (String, S
     val context = LocalContextCompat()
     var open by remember { mutableStateOf(false) }
 
-    OutlinedButton(onClick = { open = true }, modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.fillMaxWidth()) {
-            Text(deviceName.ifBlank { if (address.isBlank()) "기기 고르기 — 지금은 모든 기기" else address })
-            if (address.isNotBlank()) {
-                Text(address, style = MonoSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
-    }
+    PickerField(
+        label = "기기",
+        value = deviceName.ifBlank { if (address.isBlank()) "모든 기기" else address },
+        detail = address.takeIf { it.isNotBlank() && deviceName.isNotBlank() },
+        onClick = { open = true }
+    )
 
     if (open) {
         val devices = remember { bondedDevices(context) }

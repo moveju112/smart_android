@@ -70,6 +70,79 @@ sealed class Action {
     ) : Action()
 }
 
+/**
+ * 알림 지우기 규칙 — "이 앱에 이 문구가 뜨면 N초 뒤 지운다".
+ *
+ * 쓰던 매크로 대부분이 이 한 가지 모양이었다. 저장 형태는 그대로 트리거+액션이고,
+ * 이건 그 모양을 알아보고 한 장짜리 화면으로 다루기 위한 창구다.
+ */
+data class ClearRule(
+    val packageName: String = "",
+    val appLabel: String = "",
+    val text: String = "",
+    val seconds: Int = 0,
+    val includeOngoing: Boolean = false
+)
+
+/** 이 매크로가 알림 지우기 한 장으로 다룰 수 있는 모양인지. 아니면 null */
+fun Macro.asClearRule(): ClearRule? {
+    val trig = trigger as? Trigger.Notification ?: return null
+    val clear = actions.lastOrNull() as? Action.ClearNotification ?: return null
+    // 앞에 올 수 있는 건 대기 하나뿐. 그 이상 엮여 있으면 직접 짜기로 다룬다
+    val head = actions.dropLast(1)
+    val seconds = when {
+        head.isEmpty() -> 0
+        head.size == 1 -> (head[0] as? Action.Delay)?.seconds ?: return null
+        else -> return null
+    }
+    if (trig.packageName != clear.packageName) return null
+    // 트리거 문구가 비어 있던 옛 매크로도 받아 준다. 저장할 때 삭제 문구로 맞춰진다
+    if (trig.text.isNotBlank() && trig.text != clear.text) return null
+    return ClearRule(
+        packageName = clear.packageName,
+        appLabel = clear.appLabel.ifBlank { trig.appLabel },
+        text = clear.text,
+        seconds = seconds,
+        includeOngoing = clear.includeOngoing
+    )
+}
+
+/**
+ * 규칙을 트리거+액션으로 되편다.
+ * 트리거 문구를 삭제 문구와 같게 맞춰, 상관없는 알림에 매크로가 헛도는 일을 없앤다.
+ */
+fun Macro.withClearRule(rule: ClearRule): Macro = copy(
+    trigger = Trigger.Notification(rule.packageName, rule.appLabel, rule.text),
+    actions = buildList {
+        if (rule.seconds > 0) add(Action.Delay(rule.seconds))
+        add(
+            Action.ClearNotification(
+                packageName = rule.packageName,
+                appLabel = rule.appLabel,
+                text = rule.text,
+                includeOngoing = rule.includeOngoing
+            )
+        )
+    }
+)
+
+/** 목록에 뿌릴 한 줄 — 어느 앱의 무슨 문구를 언제 지우는지 */
+fun ClearRule.summary(): String {
+    val app = appLabel.ifBlank { packageName.ifBlank { "모든 앱" } }
+    val what = if (text.isBlank()) "알림 전부" else "\"$text\""
+    val when_ = if (seconds > 0) "${humanSeconds(seconds)} 뒤" else "바로"
+    return "$app · $what · $when_ 지움"
+}
+
+/** 1800초가 몇 분인지 사람이 세지 않게 한다 */
+fun humanSeconds(seconds: Int): String = when {
+    seconds <= 0 -> "기다리지 않음"
+    seconds < 60 -> "${seconds}초"
+    seconds % 3600 == 0 -> "${seconds / 3600}시간"
+    seconds % 60 == 0 -> "${seconds / 60}분"
+    else -> "${seconds / 60}분 ${seconds % 60}초"
+}
+
 /** 지금 떠 있는 알림 한 줄 */
 data class NotificationPeek(
     val packageName: String,

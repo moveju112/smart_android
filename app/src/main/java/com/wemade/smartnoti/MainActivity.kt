@@ -35,6 +35,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -130,11 +131,7 @@ private fun AppRoot(resumeTick: Int) {
     when (val current = screen) {
         is Screen.List -> MacroListScreen(
             resumeTick = resumeTick,
-            onAdd = {
-                screen = Screen.Edit(
-                    Macro(id = System.currentTimeMillis(), name = "새 매크로", trigger = Trigger.Notification())
-                )
-            },
+            onAdd = { screen = Screen.Edit(it) },
             onEdit = { screen = Screen.Edit(it) },
             onOpenLog = { screen = Screen.Log }
         )
@@ -160,7 +157,7 @@ private fun AppRoot(resumeTick: Int) {
 @Composable
 private fun MacroListScreen(
     resumeTick: Int,
-    onAdd: () -> Unit,
+    onAdd: (Macro) -> Unit,
     onEdit: (Macro) -> Unit,
     onOpenLog: () -> Unit
 ) {
@@ -177,6 +174,7 @@ private fun MacroListScreen(
     var menuOpen by remember { mutableStateOf(false) }
     var importReport by remember { mutableStateOf<ImportResult?>(null) }
     var showUpdate by remember { mutableStateOf(false) }
+    var showNewMacro by remember { mutableStateOf(false) }
     val snackbar = remember { SnackbarHostState() }
 
     // MacroDroid 백업 파일 읽기 — 확장자가 .mdr이라 종류를 가리지 않고 연다
@@ -225,6 +223,7 @@ private fun MacroListScreen(
         ImportReportDialog(report) { importReport = null }
     }
     if (showUpdate) UpdateDialog { showUpdate = false }
+    if (showNewMacro) NewMacroDialog(onPick = { showNewMacro = false; onAdd(it) }) { showNewMacro = false }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -263,7 +262,7 @@ private fun MacroListScreen(
         },
         floatingActionButton = {
             ExtendedFloatingActionButton(
-                onClick = onAdd,
+                onClick = { showNewMacro = true },
                 icon = { Icon(Icons.Default.Add, null) },
                 text = { Text("매크로 만들기") }
             )
@@ -454,26 +453,102 @@ private fun MacroCard(
 
             Spacer(Modifier.padding(top = 2.dp))
 
+            // 알림 지우기는 단계를 펼쳐 봐야 알 게 없다. 한 줄로 접어 목록을 가볍게 둔다
+            val rule = macro.asClearRule()
             Box(Modifier.alpha(if (dim) 0.45f else 1f)) {
-                MacroRail(
-                    macro = macro,
-                    running = running,
-                    lineColor = scheme.outline,
-                    triggerColor = scheme.primary,
-                    waitColor = scheme.secondary,
-                    actColor = scheme.onSurfaceVariant
-                ) { _, text ->
-                    Text(
-                        text,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = scheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                if (rule != null) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        KindTag("알림 지우기")
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            rule.summary(),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = scheme.onSurfaceVariant,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                } else {
+                    MacroRail(
+                        macro = macro,
+                        running = running,
+                        lineColor = scheme.outline,
+                        triggerColor = scheme.primary,
+                        waitColor = scheme.secondary,
+                        actColor = scheme.onSurfaceVariant
+                    ) { _, text ->
+                        Text(
+                            text,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = scheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
             }
         }
     }
+}
+
+/** 매크로가 어떤 종류인지 다는 작은 꼬리표 */
+@Composable
+private fun KindTag(label: String) {
+    Text(
+        label,
+        style = MonoSmall,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier
+            .background(
+                MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
+                RoundedCornerShape(4.dp)
+            )
+            .padding(horizontal = 6.dp, vertical = 2.dp)
+    )
+}
+
+/** 무엇을 만들지 먼저 고르게 한다. 대부분은 알림 지우기 하나면 끝난다 */
+@Composable
+private fun NewMacroDialog(onPick: (Macro) -> Unit, onClose: () -> Unit) {
+    val id = System.currentTimeMillis()
+    val choices = listOf(
+        Triple(
+            "알림 지우기", "성가신 알림을 정해둔 시간 뒤에 자동으로 지웁니다",
+            Macro(
+                id = id, name = "알림 지우기",
+                trigger = Trigger.Notification(),
+                actions = listOf(Action.ClearNotification())
+            )
+        ),
+        Triple(
+            "직접 짜기", "알림·블루투스·와이파이를 조건으로 단계를 엮습니다",
+            Macro(id = id, name = "새 매크로", trigger = Trigger.Notification())
+        )
+    )
+    AlertDialog(
+        onDismissRequest = onClose,
+        title = { Text("무엇을 만들까요?") },
+        text = {
+            Column {
+                choices.forEachIndexed { i, (label, hint, macro) ->
+                    if (i > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    Column(
+                        Modifier.fillMaxWidth()
+                            .clickable { onPick(macro) }
+                            .padding(vertical = 10.dp)
+                    ) {
+                        Text(label, style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            hint,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onClose) { Text("닫기") } }
+    )
 }
 
 @Composable
