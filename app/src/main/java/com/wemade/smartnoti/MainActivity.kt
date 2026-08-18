@@ -536,6 +536,24 @@ private fun UpdateDialog(onClose: () -> Unit) {
         title = { Text("업데이트") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                // 손대는 것이 위, 알려주는 것이 아래
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("스스로 최신으로 유지", style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            "하루 한 번 확인해 새 버전을 받아 깝니다. 처음 한 번은 설치 확인 화면이 뜹니다.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = auto,
+                        onCheckedChange = { auto = it; Updater.setAutoEnabled(context, it) }
+                    )
+                }
+
+                HorizontalDivider()
+
                 Row {
                     Text("지금 버전", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
                     Text(BuildConfig.VERSION_NAME, style = MonoLabel)
@@ -559,22 +577,6 @@ private fun UpdateDialog(onClose: () -> Unit) {
                     style = MaterialTheme.typography.bodyMedium
                 )
 
-                HorizontalDivider()
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("스스로 최신으로 유지", style = MaterialTheme.typography.bodyMedium)
-                        Text(
-                            "하루 한 번 확인해 새 버전을 받아 깝니다. 처음 한 번은 설치 확인 화면이 뜹니다.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    Switch(
-                        checked = auto,
-                        onCheckedChange = { auto = it; Updater.setAutoEnabled(context, it) }
-                    )
-                }
             }
         },
         confirmButton = {
