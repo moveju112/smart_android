@@ -310,8 +310,12 @@ private fun MacroListScreen(
                         if (service == null) {
                             scope.launch { snackbar.showMessage("엔진이 꺼져 있습니다. 알림 접근 권한을 켜세요") }
                         } else {
-                            service.runNow(macro)
-                            scope.launch { snackbar.showMessage("${macro.name} 실행함 — 대기와 조건은 건너뜁니다") }
+                            scope.launch {
+                                // 강제 실행은 대기를 건너뛰므로 곧 끝난다. 끝나면 결과를 그 자리에서 보여준다
+                                service.runNow(macro)?.join()
+                                val last = RunLog.lines.value.firstOrNull()?.substringAfter("  ")
+                                snackbar.showMessage(last ?: "${macro.name} 실행함")
+                            }
                         }
                     },
                     onClick = { onEdit(macro) }

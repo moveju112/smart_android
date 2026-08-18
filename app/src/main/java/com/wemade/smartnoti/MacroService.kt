@@ -131,14 +131,32 @@ class MacroService : NotificationListenerService() {
     }
 
     /**
+     * 지금 화면에 떠 있는 알림을 (앱, 패키지, 제목, 본문, 지울 수 있는지)로 넘긴다.
+     * 문구를 손으로 적어 맞추는 대신 눈으로 보고 고르게 하려는 것이다
+     */
+    fun snapshot(): List<NotificationPeek> {
+        val active = runCatching { activeNotifications }.getOrNull() ?: return emptyList()
+        return active.map { sbn ->
+            val extras = sbn.notification.extras
+            NotificationPeek(
+                packageName = sbn.packageName,
+                title = extras.getCharSequence("android.title")?.toString().orEmpty(),
+                text = (extras.getCharSequence("android.text")
+                    ?: extras.getCharSequence("android.bigText"))?.toString().orEmpty(),
+                clearable = sbn.isClearable
+            )
+        }
+    }
+
+    /**
      * 지금 바로 실행. 트리거를 기다리지 않고, 대기와 조건도 건너뛴다.
      * 매크로를 손보고 결과를 곧바로 확인하려는 용도다
      */
-    fun runNow(macro: Macro) = launchMacro(macro, force = true)
+    fun runNow(macro: Macro): Job? = launchMacro(macro, force = true)
 
-    private fun launchMacro(macro: Macro, force: Boolean) {
-        if (running[macro.id]?.isActive == true) return
-        running[macro.id] = scope.launch {
+    private fun launchMacro(macro: Macro, force: Boolean): Job? {
+        if (running[macro.id]?.isActive == true) return null
+        val job = scope.launch {
             EngineState.markRunning(macro.id, true)
             Log.i(TAG, "실행: ${macro.name}")
             RunLog.add(if (force) "▶ ${macro.name} · 강제 실행" else "▶ ${macro.name}")
@@ -154,6 +172,8 @@ class MacroService : NotificationListenerService() {
                 EngineState.markRunning(macro.id, false)
             }
         }
+        running[macro.id] = job
+        return job
     }
 
     /** 액션 하나 실행. false를 주면 남은 액션을 실행하지 않는다 */

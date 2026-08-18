@@ -255,6 +255,10 @@ private fun TriggerEditor(trigger: Trigger, onChange: (Trigger) -> Unit) {
 
     when (trigger) {
         is Trigger.Notification -> {
+            LiveNotificationPicker { pkg, title, text, _ ->
+                // 제목보다 본문이 알림마다 잘 달라진다. 본문이 있으면 그쪽을 조건으로 삼는다
+                onChange(trigger.copy(packageName = pkg, appLabel = "", text = text.ifBlank { title }))
+            }
             AppPicker(trigger.packageName, trigger.appLabel) { pkg, label ->
                 onChange(trigger.copy(packageName = pkg, appLabel = label))
             }
@@ -307,6 +311,17 @@ private fun ActionEditor(action: Action, onChange: (Action) -> Unit) {
         )
 
         is Action.ClearNotification -> {
+            LiveNotificationPicker { pkg, title, text, clearable ->
+                onChange(
+                    action.copy(
+                        packageName = pkg,
+                        appLabel = "",
+                        text = text.ifBlank { title },
+                        // 지울 수 없는 알림을 골랐다면 그걸 지우겠다는 뜻이다
+                        includeOngoing = action.includeOngoing || !clearable
+                    )
+                )
+            }
             AppPicker(action.packageName, action.appLabel) { pkg, label ->
                 onChange(action.copy(packageName = pkg, appLabel = label))
             }
@@ -391,6 +406,60 @@ private fun humanSeconds(seconds: Int): String = when {
     seconds % 3600 == 0 -> "${seconds / 3600}시간"
     seconds % 60 == 0 -> "${seconds / 60}분"
     else -> "${seconds / 60}분 ${seconds % 60}초"
+}
+
+/**
+ * 지금 떠 있는 알림에서 골라 앱과 문구를 한 번에 채운다.
+ * 문구를 손으로 맞추다 틀리는 일이 가장 흔한 실패라서 둔 길이다.
+ */
+@Composable
+private fun LiveNotificationPicker(onPick: (pkg: String, title: String, text: String, clearable: Boolean) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+
+    OutlinedButton(onClick = { open = true }, modifier = Modifier.fillMaxWidth()) {
+        Text("지금 떠 있는 알림에서 고르기")
+    }
+
+    if (open) {
+        val items = remember { MacroService.instance?.snapshot().orEmpty() }
+        AlertDialog(
+            onDismissRequest = { open = false },
+            title = { Text("지금 떠 있는 알림") },
+            text = {
+                if (items.isEmpty()) {
+                    Text("떠 있는 알림이 없거나 엔진이 꺼져 있습니다.\n지우려는 알림을 띄운 상태에서 다시 열어 보세요.")
+                } else {
+                    LazyColumn(Modifier.heightIn(max = 420.dp)) {
+                        items(items) { peek ->
+                            Column(
+                                Modifier.fillMaxWidth()
+                                    .clickable {
+                                        onPick(peek.packageName, peek.title, peek.text, peek.clearable)
+                                        open = false
+                                    }
+                                    .padding(vertical = 8.dp)
+                            ) {
+                                Text(
+                                    peek.title.ifBlank { "(제목 없음)" },
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                                if (peek.text.isNotBlank()) {
+                                    Text(peek.text, style = MaterialTheme.typography.bodySmall)
+                                }
+                                Text(
+                                    peek.packageName + if (!peek.clearable) "  · 지울 수 없는 알림" else "",
+                                    style = MonoSmall,
+                                    color = if (peek.clearable) MaterialTheme.colorScheme.onSurfaceVariant
+                                    else MaterialTheme.colorScheme.error
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { open = false }) { Text("닫기") } }
+        )
+    }
 }
 
 @Composable

@@ -70,6 +70,14 @@ sealed class Action {
     ) : Action()
 }
 
+/** 지금 떠 있는 알림 한 줄 */
+data class NotificationPeek(
+    val packageName: String,
+    val title: String,
+    val text: String,
+    val clearable: Boolean
+)
+
 /** 알림 텍스트 매칭 — 조건이 비었으면 통과, 아니면 대소문자 무시 포함 검사 */
 fun matchesText(needle: String, vararg haystack: String?): Boolean {
     if (needle.isBlank()) return true
