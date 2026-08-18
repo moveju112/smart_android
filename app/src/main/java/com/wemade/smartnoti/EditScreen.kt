@@ -318,6 +318,20 @@ private fun ActionEditor(action: Action, onChange: (Action) -> Unit) {
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("지울 수 없는 알림도 지우기", style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        "진행 중 표시라 손으로도 못 지우는 알림까지 건드립니다.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(
+                    checked = action.includeOngoing,
+                    onCheckedChange = { onChange(action.copy(includeOngoing = it)) }
+                )
+            }
         }
 
         is Action.StopIfBluetooth -> {

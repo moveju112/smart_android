@@ -42,7 +42,9 @@ sealed class Action {
     data class ClearNotification(
         val packageName: String = "",
         val appLabel: String = "",
-        val text: String = ""
+        val text: String = "",
+        /** 진행 중이라 손으로도 못 지우는 알림까지 건드릴지 */
+        val includeOngoing: Boolean = false
     ) : Action()
 
     /** 다른 앱에 브로드캐스트를 쏜다 (AdGuard 켜기/끄기 등) */

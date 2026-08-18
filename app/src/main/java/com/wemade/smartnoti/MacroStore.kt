@@ -63,6 +63,14 @@ object EngineState {
 }
 
 /**
+ * 매크로가 왜 안 걸리는지 알아내려면 알림의 실제 문구를 봐야 한다.
+ * 켜 두면 들어오는 알림을 전부 실행 기록에 남긴다. 시끄러우니 평소엔 꺼 둔다.
+ */
+object Diagnostics {
+    val peekNotifications = MutableStateFlow(false)
+}
+
+/**
  * 최근 실행 기록. 실기기에서 매크로가 정말 도는지 확인할 창구다.
  * ponytail: 메모리에만 남는다. 앱을 껐다 켜면 사라지고, 필요해지면 파일로 내리면 된다
  */

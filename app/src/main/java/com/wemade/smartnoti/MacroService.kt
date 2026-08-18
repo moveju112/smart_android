@@ -113,6 +113,9 @@ class MacroService : NotificationListenerService() {
         val title = sbn.notification.extras.getCharSequence("android.title")?.toString()
         val text = sbn.notification.extras.getCharSequence("android.text")?.toString()
         val bigText = sbn.notification.extras.getCharSequence("android.bigText")?.toString()
+        if (Diagnostics.peekNotifications.value) {
+            RunLog.add("알림 들어옴 · ${sbn.packageName} · \"${title.orEmpty()}\" / \"${text ?: bigText.orEmpty()}\"")
+        }
         fire { trigger ->
             trigger is Trigger.Notification &&
                 (trigger.packageName.isBlank() || trigger.packageName == sbn.packageName) &&
@@ -168,19 +171,34 @@ class MacroService : NotificationListenerService() {
 
             is Action.ClearNotification -> {
                 val active = runCatching { activeNotifications }.getOrNull() ?: return true
-                active.filter { sbn ->
-                    // 상시 알림(진행 중·지울 수 없음)은 건드리지 않는다 — MacroDroid 기본값과 같다
-                    sbn.isClearable &&
-                        (action.packageName.isBlank() || action.packageName == sbn.packageName) &&
+
+                // 1. 그 앱 알림을 먼저 추려 둔다. 못 지웠을 때 무엇이 있었는지 알려주기 위함이다
+                val fromApp = active.filter {
+                    action.packageName.isBlank() || action.packageName == it.packageName
+                }
+                // 2. 문구까지 맞는 것만 고른다
+                val hits = fromApp.filter { sbn ->
+                    (action.includeOngoing || sbn.isClearable) &&
                         matchesText(
                             action.text,
                             sbn.notification.extras.getCharSequence("android.title")?.toString(),
                             sbn.notification.extras.getCharSequence("android.text")?.toString(),
                             sbn.notification.extras.getCharSequence("android.bigText")?.toString()
                         )
-                }.also { hits ->
-                    hits.forEach { cancelNotification(it.key) }
-                    RunLog.add("알림 ${hits.size}개 삭제")
+                }
+                hits.forEach { cancelNotification(it.key) }
+
+                when {
+                    hits.isNotEmpty() -> RunLog.add("알림 ${hits.size}개 삭제")
+                    fromApp.isEmpty() -> RunLog.add("지울 알림 없음 · 그 앱 알림이 하나도 없음")
+                    else -> {
+                        // 문구가 안 맞거나 지울 수 없는 알림이다. 실제 문구를 그대로 보여준다
+                        val sample = fromApp.first()
+                        val t = sample.notification.extras.getCharSequence("android.title")?.toString().orEmpty()
+                        val b = sample.notification.extras.getCharSequence("android.text")?.toString().orEmpty()
+                        val ongoing = if (!sample.isClearable) " (지울 수 없는 알림)" else ""
+                        RunLog.add("지울 알림 없음 · 그 앱 알림은 \"$t\" / \"$b\"$ongoing")
+                    }
                 }
             }
 

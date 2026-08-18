@@ -644,6 +644,7 @@ private fun ImportReportDialog(result: ImportResult, onClose: () -> Unit) {
 @Composable
 private fun RunLogScreen(onBack: () -> Unit) {
     val lines by RunLog.lines.collectAsState()
+    val peek by Diagnostics.peekNotifications.collectAsState()
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
@@ -655,8 +656,30 @@ private fun RunLogScreen(onBack: () -> Unit) {
             )
         }
     ) { padding ->
+        Column(Modifier.fillMaxSize().padding(padding)) {
+            // 매크로가 왜 안 걸리는지 알려면 알림의 진짜 문구를 봐야 한다
+            Card(
+                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+            ) {
+                Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("들어오는 알림 엿보기", style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            "모든 알림의 앱과 문구를 여기에 남깁니다. 매크로 문구를 맞출 때만 켜세요.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = peek,
+                        onCheckedChange = { Diagnostics.peekNotifications.value = it }
+                    )
+                }
+            }
+
         if (lines.isEmpty()) {
-            Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
                     "아직 기록이 없습니다.\n매크로가 실행되면 여기에 쌓입니다.",
                     style = MaterialTheme.typography.bodySmall,
@@ -665,7 +688,7 @@ private fun RunLogScreen(onBack: () -> Unit) {
             }
         } else {
             LazyColumn(
-                Modifier.fillMaxSize().padding(padding),
+                Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
             ) {
                 items(lines) { line ->
@@ -685,6 +708,7 @@ private fun RunLogScreen(onBack: () -> Unit) {
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 }
             }
+        }
         }
     }
 }
