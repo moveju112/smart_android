@@ -143,6 +143,21 @@ fun EditScreen(macro: Macro, onSave: (Macro) -> Unit, onDelete: () -> Unit, onCa
                 }
 
                 item {
+                    // 저장한 뒤에 놓아야 위젯이 지금 내용을 가리킨다
+                    val context = LocalContextCompat()
+                    if (MacroWidget.canPin(context)) {
+                        OutlinedButton(
+                            onClick = {
+                                val saved = collect()
+                                MacroStore.upsert(context, saved)
+                                MacroWidget.pin(context, saved)
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) { Text("홈 화면에 버튼으로 놓기") }
+                    }
+                }
+
+                item {
                     Row(
                         Modifier.padding(top = 6.dp),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -176,7 +191,6 @@ private fun ModeSwitch(
 
 /**
  * 무엇을 고르는 칩. 고른 것은 청록으로 채운다.
- * 앰버는 이 앱에서 시간을 뜻하므로 시간 고르기([DelayPicker])에만 남겨 둔다.
  */
 @Composable
 private fun ChoiceChip(
@@ -184,7 +198,6 @@ private fun ChoiceChip(
     selected: Boolean,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
-    time: Boolean = false,
     onClick: () -> Unit
 ) {
     val scheme = MaterialTheme.colorScheme
@@ -194,8 +207,8 @@ private fun ChoiceChip(
         onClick = onClick,
         label = { Text(label) },
         colors = FilterChipDefaults.filterChipColors(
-            selectedContainerColor = if (time) scheme.secondaryContainer else scheme.primaryContainer,
-            selectedLabelColor = if (time) scheme.onSecondaryContainer else scheme.onPrimaryContainer
+            selectedContainerColor = scheme.primaryContainer,
+            selectedLabelColor = scheme.onPrimaryContainer
         ),
         modifier = modifier
     )
@@ -237,7 +250,7 @@ private fun LazyListScope.clearRuleSections(
 
     item {
         Section(2, "언제 지울지", "너무 빨리 지우면 알림을 보지도 못합니다") {
-            DelayPicker(rule.seconds) { onChange(rule.copy(seconds = it)) }
+            SecondsField(rule.seconds) { onChange(rule.copy(seconds = it)) }
         }
     }
 
@@ -249,32 +262,6 @@ private fun LazyListScope.clearRuleSections(
                 checked = rule.includeOngoing
             ) { onChange(rule.copy(includeOngoing = it)) }
         }
-    }
-}
-
-/** 자주 쓰는 시간은 눌러서 고르고, 없으면 직접 적는다. 셋씩 두 줄로 떨어진다 */
-@Composable
-private fun DelayPicker(seconds: Int, onChange: (Int) -> Unit) {
-    val presets = listOf(0 to "바로", 5 to "5초", 15 to "15초", 30 to "30초", 60 to "1분")
-    var custom by remember { mutableStateOf(presets.none { it.first == seconds }) }
-
-    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-        presets.take(3).forEach { (value, label) ->
-            ChoiceChip(label, !custom && seconds == value, Modifier.weight(1f), time = true) {
-                custom = false; onChange(value)
-            }
-        }
-    }
-    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-        presets.drop(3).forEach { (value, label) ->
-            ChoiceChip(label, !custom && seconds == value, Modifier.weight(1f), time = true) {
-                custom = false; onChange(value)
-            }
-        }
-        ChoiceChip("직접", custom, Modifier.weight(1f), time = true) { custom = true }
-    }
-    if (custom) {
-        SecondsField(seconds, onChange)
     }
 }
 
@@ -466,17 +453,26 @@ private fun Section(
 
 @Composable
 private fun SectionHeading(number: Int, title: String, hint: String? = null) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        NumberBadge(number)
-        Spacer(Modifier.width(10.dp))
-        Column {
-            Text(title, style = MaterialTheme.typography.titleMedium)
-            if (hint != null) {
-                Text(
-                    hint,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+    Column {
+        // 앞 칸과 눈으로 끊어 준다. 첫 칸 위에는 끊을 것이 없다
+        if (number > 1) {
+            HorizontalDivider(
+                color = MaterialTheme.colorScheme.outline,
+                modifier = Modifier.padding(bottom = 14.dp)
+            )
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            NumberBadge(number)
+            Spacer(Modifier.width(10.dp))
+            Column {
+                Text(title, style = MaterialTheme.typography.titleMedium)
+                if (hint != null) {
+                    Text(
+                        hint,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
         }
     }
@@ -571,7 +567,7 @@ private fun TriggerEditor(trigger: Trigger, onChange: (Trigger) -> Unit) {
 private fun ActionEditor(action: Action, onChange: (Action) -> Unit) {
     when (action) {
         is Action.Delay -> {
-            DelayPicker(action.seconds) { onChange(action.copy(seconds = it)) }
+            SecondsField(action.seconds) { onChange(action.copy(seconds = it)) }
         }
 
         is Action.ClearNotification -> {

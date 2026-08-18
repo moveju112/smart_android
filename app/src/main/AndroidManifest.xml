@@ -48,6 +48,28 @@
             android:name=".InstallResultReceiver"
             android:exported="false" />
 
+        <!-- 홈 화면에서 매크로를 손으로 돌리는 버튼 -->
+        <receiver
+            android:name=".MacroWidget"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_macro_info" />
+        </receiver>
+
+        <!-- 위젯을 놓을 때 뜨는 고르기 화면. 런처가 부르므로 열어 둔다 -->
+        <activity
+            android:name=".WidgetConfigActivity"
+            android:exported="true"
+            android:label="@string/app_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
+            </intent-filter>
+        </activity>
+
     </application>
 
 </manifest>
