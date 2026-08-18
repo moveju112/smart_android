@@ -19,7 +19,9 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -175,6 +177,8 @@ private fun MacroListScreen(
     var importReport by remember { mutableStateOf<ImportResult?>(null) }
     var showUpdate by remember { mutableStateOf(false) }
     var showNewMacro by remember { mutableStateOf(false) }
+    var renaming by remember { mutableStateOf<Macro?>(null) }
+    var deleting by remember { mutableStateOf<Macro?>(null) }
     val snackbar = remember { SnackbarHostState() }
 
     // 백업 파일 읽기 — 이 앱의 .json과 예전 .mdr을 모두 받아서 종류를 가리지 않고 연다
@@ -232,6 +236,33 @@ private fun MacroListScreen(
         )
     }
     if (showUpdate) UpdateDialog { showUpdate = false }
+
+    renaming?.let { target ->
+        TextPrompt(
+            title = "이름 바꾸기",
+            hint = "목록에서 이 이름으로 찾습니다",
+            initial = target.name,
+            onDone = { name ->
+                if (name.isNotBlank()) MacroStore.upsert(context, target.copy(name = name))
+                renaming = null
+            },
+            onClose = { renaming = null }
+        )
+    }
+
+    deleting?.let { target ->
+        AlertDialog(
+            onDismissRequest = { deleting = null },
+            title = { Text("이 매크로를 지울까요?") },
+            text = { Text("\"${target.name}\"이 사라집니다. 되돌릴 수 없습니다.") },
+            confirmButton = {
+                TextButton(onClick = { MacroStore.delete(context, target.id); deleting = null }) {
+                    Text("지우기", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = { TextButton(onClick = { deleting = null }) { Text("그대로 두기") } }
+        )
+    }
     if (showNewMacro) NewMacroDialog(onPick = { showNewMacro = false; onAdd(it) }) { showNewMacro = false }
 
     Scaffold(
@@ -307,7 +338,8 @@ private fun MacroListScreen(
                 }
             }
 
-            items(macros, key = { it.id }) { macro ->
+            // 꺼둔 매크로는 아래로 내린다. 지금 도는 것부터 눈에 들어와야 한다
+            items(macros.sortedByDescending { it.enabled }, key = { it.id }) { macro ->
                 MacroCard(
                     macro = macro,
                     running = macro.id in running,
@@ -326,7 +358,9 @@ private fun MacroListScreen(
                             }
                         }
                     },
-                    onClick = { onEdit(macro) }
+                    onClick = { onEdit(macro) },
+                    onRename = { renaming = macro },
+                    onDelete = { deleting = macro }
                 )
             }
 
@@ -424,6 +458,7 @@ private fun StatusDot(live: Boolean) {
     )
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun MacroCard(
     macro: Macro,
@@ -431,71 +466,101 @@ private fun MacroCard(
     engineReady: Boolean,
     onToggle: (Boolean) -> Unit,
     onRunNow: () -> Unit,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onRename: () -> Unit,
+    onDelete: () -> Unit
 ) {
     val dim = !macro.enabled
     val scheme = MaterialTheme.colorScheme
+    var menuOpen by remember { mutableStateOf(false) }
 
-    Card(
-        onClick = onClick,
-        colors = CardDefaults.cardColors(containerColor = scheme.surface)
-    ) {
-        Column(Modifier.padding(start = 14.dp, end = 8.dp, top = 12.dp, bottom = 12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    macro.name,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = if (dim) scheme.onSurfaceVariant else scheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f)
-                )
-                IconButton(onClick = onRunNow, enabled = engineReady) {
-                    Icon(
-                        Icons.Default.PlayArrow,
-                        contentDescription = "지금 실행",
-                        tint = if (engineReady) scheme.primary else scheme.onSurfaceVariant
+    Box {
+        Card(
+            colors = CardDefaults.cardColors(containerColor = scheme.surface),
+            // 길게 누르면 이 매크로를 두고 할 수 있는 일이 한자리에 나온다
+            modifier = Modifier.combinedClickable(
+                onClick = onClick,
+                onLongClick = { menuOpen = true }
+            )
+        ) {
+            Column(Modifier.padding(start = 14.dp, end = 8.dp, top = 12.dp, bottom = 12.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        macro.name,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = if (dim) scheme.onSurfaceVariant else scheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
                     )
-                }
-                Switch(checked = macro.enabled, onCheckedChange = onToggle)
-            }
-
-            Spacer(Modifier.padding(top = 2.dp))
-
-            // 알림 지우기는 단계를 펼쳐 봐야 알 게 없다. 한 줄로 접어 목록을 가볍게 둔다
-            val rule = macro.asClearRule()
-            Box(Modifier.alpha(if (dim) 0.45f else 1f)) {
-                if (rule != null) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        KindTag("알림 지우기")
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            rule.summary(),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = scheme.onSurfaceVariant,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
+                    IconButton(onClick = onRunNow, enabled = engineReady) {
+                        Icon(
+                            Icons.Default.PlayArrow,
+                            contentDescription = "지금 실행",
+                            tint = if (engineReady) scheme.primary else scheme.onSurfaceVariant
                         )
                     }
-                } else {
-                    MacroRail(
-                        macro = macro,
-                        running = running,
-                        lineColor = scheme.outline,
-                        triggerColor = scheme.primary,
-                        waitColor = scheme.secondary,
-                        actColor = scheme.onSurfaceVariant
-                    ) { _, text ->
-                        Text(
-                            text,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = scheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                    Switch(checked = macro.enabled, onCheckedChange = onToggle)
+                }
+
+                Spacer(Modifier.padding(top = 2.dp))
+
+                // 알림 지우기는 단계를 펼쳐 봐야 알 게 없다. 한 줄로 접어 목록을 가볍게 둔다
+                val rule = macro.asClearRule()
+                Box(Modifier.alpha(if (dim) 0.45f else 1f)) {
+                    if (rule != null) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            KindTag("알림 지우기")
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                rule.summary(),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = scheme.onSurfaceVariant,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    } else {
+                        MacroRail(
+                            macro = macro,
+                            running = running,
+                            lineColor = scheme.outline,
+                            triggerColor = scheme.primary,
+                            waitColor = scheme.secondary,
+                            actColor = scheme.onSurfaceVariant
+                        ) { _, text ->
+                            Text(
+                                text,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = scheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
                     }
                 }
             }
+        }
+
+        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+            DropdownMenuItem(
+                text = { Text("지금 실행") },
+                enabled = engineReady,
+                onClick = { menuOpen = false; onRunNow() }
+            )
+            DropdownMenuItem(
+                text = { Text("이름 바꾸기") },
+                onClick = { menuOpen = false; onRename() }
+            )
+            DropdownMenuItem(
+                text = { Text("수정하기") },
+                onClick = { menuOpen = false; onClick() }
+            )
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            DropdownMenuItem(
+                text = { Text("지우기", color = MaterialTheme.colorScheme.error) },
+                onClick = { menuOpen = false; onDelete() }
+            )
         }
     }
 }

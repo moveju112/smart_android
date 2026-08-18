@@ -33,8 +33,8 @@ android {
         applicationId = "com.wemade.smartnoti"
         minSdk = 26
         targetSdk = 35
-        versionCode = 19
-        versionName = "0.12.0"
+        versionCode = 20
+        versionName = "0.13.0"
     }
 
     buildTypes {

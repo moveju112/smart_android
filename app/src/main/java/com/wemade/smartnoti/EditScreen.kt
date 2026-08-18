@@ -374,7 +374,7 @@ private fun Tail(text: String) {
 
 /** 한 줄만 받는 입력창 */
 @Composable
-private fun TextPrompt(
+fun TextPrompt(
     title: String,
     hint: String,
     initial: String,
