@@ -77,22 +77,17 @@ object RunLog {
     }
 }
 
-/**
- * 처음 켰을 때 깔리는 매크로 뼈대.
- *
- * 차량 주소와 AdGuard 비밀번호는 사람마다 다르고 남에게 보일 값이라 비워 둔다.
- * 앱에서 기기를 고르고 비밀번호를 넣으면 그때부터 동작한다.
- */
+/** MacroDroid에서 쓰던 매크로를 그대로 옮겨놓은 초기값 */
 private fun defaultMacros(): List<Macro> {
-    val carMac = ""
-    val carName = ""
+    val carMac = "0C:29:8F:73:C7:F5"
+    val carName = "Tesla Model Y Why"
     // AdGuard 자동화 브로드캐스트는 그 앱 설정에 적힌 비밀번호를 extra로 같이 보낸다
     fun adguard(action: String) = Action.Broadcast(
         packageName = "com.adguard.android",
         className = "com.adguard.android.receiver.AutomationReceiver",
         action = action,
         extraName = "password",
-        extraValue = ""
+        extraValue = "q3yXS"
     )
     var seq = 1L
     fun nextId() = seq++
