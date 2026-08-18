@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- 새 버전이 나왔는지 GitHub에 물어보고, 받은 APK로 스스로를 갈아끼우기 위함 -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- 블루투스 연결/해제 감지 (안드로이드 12+는 런타임 승인 필요) -->
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+    <!-- 와이파이 연결/해제 감지 -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- 매크로를 만들 때 설치된 앱 목록에서 고르기 위함 -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+
+    <application
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.SmartNoti">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:label="@string/app_name">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- 알림 리스너 = 매크로 엔진. 시스템이 붙잡고 있어서 별도 상주 서비스가 필요 없다 -->
+        <service
+            android:name=".MacroService"
+            android:exported="false"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
+
+        <!-- 설치 결과를 돌려받는 곳. 시스템이 우리에게만 보내므로 밖에 열지 않는다 -->
+        <receiver
+            android:name=".InstallResultReceiver"
+            android:exported="false" />
+
+    </application>
+
+</manifest>

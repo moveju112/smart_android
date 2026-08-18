@@ -1,0 +1,14 @@
+# 빌드 산출물
+build/
+.gradle/
+.cxx/
+captures/
+
+# 기기·개발 환경마다 다른 설정
+local.properties
+
+# IDE
+.idea/
+*.iml
+.DS_Store
+.kotlin/

@@ -1,0 +1,14 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- 종 모양 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,30c-7.7,0 -14,6.3 -14,14v11l-5,7v3h38v-3l-5,-7V44C68,36.3 61.7,30 54,30zM54,72c2.8,0 5,-2.2 5,-5h-10C49,69.8 51.2,72 54,72z" />
+    <!-- 지운다는 뜻의 사선 -->
+    <path
+        android:fillColor="#FF6B6B"
+        android:pathData="M36,72l36,-36l5,5l-36,36z" />
+</vector>
