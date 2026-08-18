@@ -79,10 +79,13 @@ data class NotificationPeek(
 )
 
 /** 알림 텍스트 매칭 — 조건이 비었으면 통과, 아니면 대소문자 무시 포함 검사 */
-fun matchesText(needle: String, vararg haystack: String?): Boolean {
+fun matchesText(needle: String, haystack: List<String?>): Boolean {
     if (needle.isBlank()) return true
     return haystack.any { it != null && it.contains(needle, ignoreCase = true) }
 }
+
+fun matchesText(needle: String, vararg haystack: String?): Boolean =
+    matchesText(needle, haystack.toList())
 
 /** 매크로 목록 화면에 뿌릴 한 줄 요약 */
 fun Trigger.summary(): String = when (this) {

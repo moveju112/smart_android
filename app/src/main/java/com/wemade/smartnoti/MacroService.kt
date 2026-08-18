@@ -110,16 +110,14 @@ class MacroService : NotificationListenerService() {
 
     // 3. 알림이 뜰 때 — 알림 트리거 매칭
     override fun onNotificationPosted(sbn: StatusBarNotification) {
-        val title = sbn.notification.extras.getCharSequence("android.title")?.toString()
-        val text = sbn.notification.extras.getCharSequence("android.text")?.toString()
-        val bigText = sbn.notification.extras.getCharSequence("android.bigText")?.toString()
+        val texts = sbn.allTexts()
         if (Diagnostics.peekNotifications.value) {
-            RunLog.add("알림 들어옴 · ${sbn.packageName} · \"${title.orEmpty()}\" / \"${text ?: bigText.orEmpty()}\"")
+            RunLog.add("알림 들어옴 · ${sbn.packageName} · " + texts.joinToString(" / ") { "\"$it\"" })
         }
         fire { trigger ->
             trigger is Trigger.Notification &&
                 (trigger.packageName.isBlank() || trigger.packageName == sbn.packageName) &&
-                matchesText(trigger.text, title, text, bigText)
+                matchesText(trigger.text, texts)
         }
     }
 
@@ -141,8 +139,7 @@ class MacroService : NotificationListenerService() {
             NotificationPeek(
                 packageName = sbn.packageName,
                 title = extras.getCharSequence("android.title")?.toString().orEmpty(),
-                text = (extras.getCharSequence("android.text")
-                    ?: extras.getCharSequence("android.bigText"))?.toString().orEmpty(),
+                text = sbn.allTexts().drop(1).joinToString(" / "),
                 clearable = sbn.isClearable
             )
         }
@@ -198,13 +195,7 @@ class MacroService : NotificationListenerService() {
                 }
                 // 2. 문구까지 맞는 것만 고른다
                 val hits = fromApp.filter { sbn ->
-                    (action.includeOngoing || sbn.isClearable) &&
-                        matchesText(
-                            action.text,
-                            sbn.notification.extras.getCharSequence("android.title")?.toString(),
-                            sbn.notification.extras.getCharSequence("android.text")?.toString(),
-                            sbn.notification.extras.getCharSequence("android.bigText")?.toString()
-                        )
+                    (action.includeOngoing || sbn.isClearable) && matchesText(action.text, sbn.allTexts())
                 }
                 hits.forEach { cancelNotification(it.key) }
 
@@ -214,10 +205,9 @@ class MacroService : NotificationListenerService() {
                     else -> {
                         // 문구가 안 맞거나 지울 수 없는 알림이다. 실제 문구를 그대로 보여준다
                         val sample = fromApp.first()
-                        val t = sample.notification.extras.getCharSequence("android.title")?.toString().orEmpty()
-                        val b = sample.notification.extras.getCharSequence("android.text")?.toString().orEmpty()
+                        val shown = sample.allTexts().joinToString(" / ") { "\"$it\"" }
                         val ongoing = if (!sample.isClearable) " (지울 수 없는 알림)" else ""
-                        RunLog.add("지울 알림 없음 · 그 앱 알림은 \"$t\" / \"$b\"$ongoing")
+                        RunLog.add("지울 알림 없음 · 그 앱 알림은 $shown$ongoing")
                     }
                 }
             }
@@ -249,4 +239,24 @@ class MacroService : NotificationListenerService() {
         var instance: MacroService? = null
             private set
     }
+}
+
+/**
+ * 알림에서 글자가 들어갈 수 있는 칸을 모두 모은다.
+ *
+ * 제목·본문만 보다가 놓친 일이 있었다. 앱은 부제목, 요약, 여러 줄 목록 같은 곳에도
+ * 글자를 나눠 담는다. 조건을 맞출 때는 이 전부를 봐야 한다.
+ */
+private fun StatusBarNotification.allTexts(): List<String> {
+    val e = notification.extras
+    val singles = listOf(
+        "android.title", "android.title.big", "android.text", "android.bigText",
+        "android.subText", "android.summaryText", "android.infoText", "android.conversationTitle"
+    ).mapNotNull { e.getCharSequence(it)?.toString() }
+    val lines = e.getCharSequenceArray("android.textLines")?.map { it.toString() }.orEmpty()
+    val ticker = notification.tickerText?.toString()
+    return (singles + lines + listOfNotNull(ticker))
+        .map { it.trim() }
+        .filter { it.isNotEmpty() }
+        .distinct()
 }
