@@ -200,9 +200,8 @@ class MacroService : NotificationListenerService() {
                     action.packageName.isBlank() || action.packageName == it.packageName
                 }
                 // 2. 문구까지 맞는 것만 고른다
-                val hits = fromApp.filter { sbn ->
-                    (action.includeOngoing || sbn.isClearable) && matchesText(action.text, sbn.allTexts())
-                }
+                // 진행 중이라 손으로는 못 지우는 알림도 지운다. 그러라고 있는 매크로다
+                val hits = fromApp.filter { sbn -> matchesText(action.text, sbn.allTexts()) }
                 hits.forEach { cancelNotification(it.key) }
 
                 when {
@@ -212,8 +211,7 @@ class MacroService : NotificationListenerService() {
                         // 문구가 안 맞거나 지울 수 없는 알림이다. 실제 문구를 그대로 보여준다
                         val sample = fromApp.first()
                         val shown = sample.allTexts().joinToString(" / ") { "\"$it\"" }
-                        val ongoing = if (!sample.isClearable) " (지울 수 없는 알림)" else ""
-                        RunLog.add("지울 알림 없음 · 그 앱 알림은 $shown$ongoing")
+                        RunLog.add("지울 알림 없음 · 그 앱 알림은 $shown")
                     }
                 }
             }

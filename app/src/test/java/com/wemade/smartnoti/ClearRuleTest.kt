@@ -16,7 +16,7 @@ class ClearRuleTest {
             Trigger.Notification("com.x", "X", "야옹"),
             Action.ClearNotification("com.x", "X", "야옹")
         )
-        assertEquals(ClearRule("com.x", "X", "야옹", 0, false), m.asClearRule())
+        assertEquals(ClearRule("com.x", "X", "야옹", 0), m.asClearRule())
     }
 
     @Test
@@ -67,18 +67,18 @@ class ClearRuleTest {
 
     @Test
     fun `규칙으로 되편면 트리거 문구가 삭제 문구와 같아진다`() {
-        val rule = ClearRule("com.x", "X", "재부팅", 60, true)
+        val rule = ClearRule("com.x", "X", "재부팅", 60)
         val m = macro(Trigger.Notification(), Action.ClearNotification()).withClearRule(rule)
 
         assertEquals(Trigger.Notification("com.x", "X", "재부팅"), m.trigger)
-        assertEquals(listOf(Action.Delay(60), Action.ClearNotification("com.x", "X", "재부팅", true)), m.actions)
+        assertEquals(listOf(Action.Delay(60), Action.ClearNotification("com.x", "X", "재부팅")), m.actions)
         assertEquals(rule, m.asClearRule())
     }
 
     @Test
     fun `대기가 0이면 대기 단계를 넣지 않는다`() {
         val m = macro(Trigger.Notification(), Action.ClearNotification())
-            .withClearRule(ClearRule("com.x", "X", "야옹", 0, false))
+            .withClearRule(ClearRule("com.x", "X", "야옹", 0))
         assertEquals(1, m.actions.size)
     }
 }

@@ -42,9 +42,7 @@ sealed class Action {
     data class ClearNotification(
         val packageName: String = "",
         val appLabel: String = "",
-        val text: String = "",
-        /** 진행 중이라 손으로도 못 지우는 알림까지 건드릴지 */
-        val includeOngoing: Boolean = false
+        val text: String = ""
     ) : Action()
 
     /** 다른 앱에 브로드캐스트를 쏜다 (AdGuard 켜기/끄기 등) */
@@ -80,8 +78,7 @@ data class ClearRule(
     val packageName: String = "",
     val appLabel: String = "",
     val text: String = "",
-    val seconds: Int = 0,
-    val includeOngoing: Boolean = false
+    val seconds: Int = 0
 )
 
 /** 이 매크로가 알림 지우기 한 장으로 다룰 수 있는 모양인지. 아니면 null */
@@ -102,8 +99,7 @@ fun Macro.asClearRule(): ClearRule? {
         packageName = clear.packageName,
         appLabel = clear.appLabel.ifBlank { trig.appLabel },
         text = clear.text,
-        seconds = seconds,
-        includeOngoing = clear.includeOngoing
+        seconds = seconds
     )
 }
 
@@ -119,8 +115,7 @@ fun Macro.withClearRule(rule: ClearRule): Macro = copy(
             Action.ClearNotification(
                 packageName = rule.packageName,
                 appLabel = rule.appLabel,
-                text = rule.text,
-                includeOngoing = rule.includeOngoing
+                text = rule.text
             )
         )
     }

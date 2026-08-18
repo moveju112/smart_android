@@ -263,9 +263,7 @@ private fun LazyListScope.clearRuleSections(
                 rule.copy(
                     packageName = pkg,
                     appLabel = label,
-                    text = text.ifBlank { title },
-                    // 지울 수 없는 알림을 골랐다면 그걸 지우겠다는 뜻이다
-                    includeOngoing = rule.includeOngoing || !clearable
+                    text = text.ifBlank { title }
                 )
             )
         }
@@ -273,17 +271,6 @@ private fun LazyListScope.clearRuleSections(
 
     item { ClearAllWarning(rule.packageName, rule.text) }
 
-    item {
-        // 대개는 건드릴 일이 없다. 접어 두고, 켜져 있을 때만 펼쳐 둔다
-        var open by remember { mutableStateOf(rule.includeOngoing) }
-        FoldableSection("잘 안 지워질 때", open, { open = it }) {
-            SwitchRow(
-                title = "지울 수 없는 알림도 지우기",
-                hint = "진행 중 표시라 손으로도 못 지우는 알림까지 건드립니다.",
-                checked = rule.includeOngoing
-            ) { onChange(rule.copy(includeOngoing = it)) }
-        }
-    }
 }
 
 /** 문장 세 줄. 눌러야 하는 자리는 색으로 도드라진다 */
@@ -784,8 +771,7 @@ private fun ActionEditor(action: Action, onChange: (Action) -> Unit) {
                     action.copy(
                         packageName = pkg,
                         appLabel = label,
-                        text = text.ifBlank { title },
-                        includeOngoing = action.includeOngoing || !clearable
+                        text = text.ifBlank { title }
                     )
                 )
             }
@@ -801,11 +787,6 @@ private fun ActionEditor(action: Action, onChange: (Action) -> Unit) {
                 modifier = Modifier.fillMaxWidth()
             )
             ClearAllWarning(action.packageName, action.text)
-            SwitchRow(
-                title = "지울 수 없는 알림도 지우기",
-                hint = "진행 중 표시라 손으로도 못 지우는 알림까지 건드립니다.",
-                checked = action.includeOngoing
-            ) { onChange(action.copy(includeOngoing = it)) }
         }
 
         is Action.StopIfBluetooth -> {
