@@ -526,7 +526,8 @@ private fun NewMacroDialog(onPick: (Macro) -> Unit, onClose: () -> Unit) {
             Macro(
                 id = id, name = "알림 지우기",
                 trigger = Trigger.Notification(),
-                actions = listOf(Action.ClearNotification())
+                // 0초면 알림이 뜨자마자 사라져 눈으로 볼 새가 없다
+                actions = listOf(Action.Delay(5), Action.ClearNotification())
             )
         ),
         Triple(

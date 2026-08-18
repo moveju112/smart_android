@@ -117,12 +117,10 @@ fun EditScreen(macro: Macro, onSave: (Macro) -> Unit, onDelete: () -> Unit, onCa
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 item {
-                    OutlinedTextField(
-                        value = draft.name,
-                        onValueChange = { draft = draft.copy(name = it) },
-                        label = { Text("이름") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
+                    HeaderCard(
+                        name = draft.name,
+                        summary = collect().oneLine(),
+                        onName = { draft = draft.copy(name = it) }
                     )
                 }
 
@@ -158,20 +156,69 @@ fun EditScreen(macro: Macro, onSave: (Macro) -> Unit, onDelete: () -> Unit, onCa
                 }
 
                 item {
-                    Row(
-                        Modifier.padding(top = 6.dp),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    // 저장은 맨 위에 늘 떠 있다. 여기까지 내려와야 하는 것은 지우기뿐이다
+                    OutlinedButton(
+                        onClick = { confirmDelete = true },
+                        modifier = Modifier.fillMaxWidth().padding(top = 6.dp)
                     ) {
-                        Button(onClick = { onSave(collect()) }, modifier = Modifier.weight(1f)) {
-                            Text("저장")
-                        }
-                        OutlinedButton(onClick = { confirmDelete = true }) {
-                            Text("지우기", color = MaterialTheme.colorScheme.error)
-                        }
+                        Text("이 매크로 지우기", color = MaterialTheme.colorScheme.error)
                     }
                 }
             }
         }
+    }
+}
+
+/**
+ * 이름과, 지금 설정이 무엇을 하는지 한 줄.
+ * 아래에서 무엇을 만지든 결과가 여기에 바로 비쳐서, 저장하기 전에 확인할 수 있다.
+ */
+@Composable
+private fun HeaderCard(name: String, summary: String, onName: (String) -> Unit) {
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            OutlinedTextField(
+                value = name,
+                onValueChange = onName,
+                label = { Text("이름") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "하는 일",
+                    style = MonoSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    summary,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+        }
+    }
+}
+
+/** 앱도 문구도 비어 있으면 눈에 보이는 알림이 전부 사라진다. 그 전에 알려 준다 */
+@Composable
+private fun ClearAllWarning(packageName: String, text: String) {
+    if (packageName.isNotBlank() || text.isNotBlank()) return
+    val scheme = MaterialTheme.colorScheme
+    Row(
+        Modifier.fillMaxWidth()
+            .background(scheme.errorContainer, RoundedCornerShape(8.dp))
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text("주의", style = MonoSmall, color = scheme.onErrorContainer)
+        Spacer(Modifier.width(10.dp))
+        Text(
+            "지금 설정으로는 모든 앱의 알림이 전부 지워집니다.",
+            style = MaterialTheme.typography.bodySmall,
+            color = scheme.onErrorContainer
+        )
     }
 }
 
@@ -245,6 +292,7 @@ private fun LazyListScope.clearRuleSections(
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
+            ClearAllWarning(rule.packageName, rule.text)
         }
     }
 
@@ -255,7 +303,9 @@ private fun LazyListScope.clearRuleSections(
     }
 
     item {
-        Section(3, "잘 안 지워질 때", null) {
+        // 대개는 건드릴 일이 없다. 접어 두고, 켜져 있을 때만 펼쳐 둔다
+        var open by remember { mutableStateOf(rule.includeOngoing) }
+        FoldableSection(3, "잘 안 지워질 때", open, { open = it }) {
             SwitchRow(
                 title = "지울 수 없는 알림도 지우기",
                 hint = "진행 중 표시라 손으로도 못 지우는 알림까지 건드립니다.",
@@ -315,6 +365,14 @@ private fun LazyListScope.advancedSections(
     }
 
     item {
+        if (draft.actions.isEmpty()) {
+            Text(
+                "아직 하는 일이 없습니다. 아래에서 단계를 더하세요.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 4.dp, bottom = 6.dp)
+            )
+        }
         AddStepButton { onChange(draft.copy(actions = draft.actions + it)) }
     }
 }
@@ -447,6 +505,53 @@ private fun Section(
                 Modifier.padding(14.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) { content() }
+        }
+    }
+}
+
+/** 자주 건드리지 않는 칸. 제목만 두고 접어 둔다 */
+@Composable
+private fun FoldableSection(
+    number: Int,
+    title: String,
+    open: Boolean,
+    onOpen: (Boolean) -> Unit,
+    content: @Composable () -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        // 구분선은 줄 전체에 그어야 하므로 제목 묶음 밖에서 따로 그린다
+        HorizontalDivider(
+            color = MaterialTheme.colorScheme.outline,
+            modifier = Modifier.padding(bottom = 6.dp)
+        )
+        Row(
+            Modifier.fillMaxWidth().clickable { onOpen(!open) },
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            NumberBadge(number)
+            Spacer(Modifier.width(10.dp))
+            Column {
+                Text(title, style = MaterialTheme.typography.titleMedium)
+                if (!open) {
+                    Text(
+                        "눌러서 펼치기",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            Spacer(Modifier.weight(1f))
+            Icon(
+                if (open) Icons.Default.ArrowUpward else Icons.Default.ArrowDownward,
+                contentDescription = if (open) "접기" else "펼치기",
+                modifier = Modifier.size(18.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        if (open) {
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                Column(Modifier.padding(14.dp)) { content() }
+            }
         }
     }
 }
@@ -592,6 +697,7 @@ private fun ActionEditor(action: Action, onChange: (Action) -> Unit) {
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
+            ClearAllWarning(action.packageName, action.text)
             SwitchRow(
                 title = "지울 수 없는 알림도 지우기",
                 hint = "진행 중 표시라 손으로도 못 지우는 알림까지 건드립니다.",

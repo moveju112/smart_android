@@ -134,6 +134,13 @@ fun ClearRule.summary(): String {
     return "$app · $what · $when_ 지움"
 }
 
+/**
+ * 이 매크로가 무엇을 하는지 한 줄로.
+ * 설정을 만지는 동안 결과가 바로 보이게 하려는 것이다 — 저장하고 목록에 가서야 알 일이 아니다.
+ */
+fun Macro.oneLine(): String = asClearRule()?.summary()
+    ?: (trigger.summary() + if (actions.isEmpty()) " · 하는 일 없음" else " · " + actions.joinToString(", ") { it.summary() })
+
 /** 1800초가 몇 분인지 사람이 세지 않게 한다 */
 fun humanSeconds(seconds: Int): String = when {
     seconds <= 0 -> "기다리지 않음"
