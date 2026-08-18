@@ -69,18 +69,30 @@ object Updater {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val last = prefs.getLong(KEY_LAST_CHECK, 0)
         if (System.currentTimeMillis() - last < CHECK_INTERVAL_MS) return
-        prefs.edit().putLong(KEY_LAST_CHECK, System.currentTimeMillis()).apply()
 
         check(BuildConfig.VERSION_NAME)
         val found = state.value
+        if (found is UpdateState.Failed) {
+            // 도장을 찍지 않는다. 다음에 서비스가 뜰 때 다시 해본다
+            RunLog.add("업데이트 확인 실패")
+            return
+        }
+        // 확인을 끝낸 뒤에 도장을 찍는다.
+        // 먼저 찍으면 받다가 서비스가 죽었을 때 하루 내내 다시 시도하지 않는다
+        prefs.edit().putLong(KEY_LAST_CHECK, System.currentTimeMillis()).apply()
+
         if (found is UpdateState.Available && found.apkUrl != null) {
+            RunLog.add("새 버전 ${found.version} 발견, 받는 중")
             download(context, found.version, found.apkUrl)
+            if (state.value is UpdateState.Downloaded) RunLog.add("새 버전 ${found.version} 받음")
             // 이 앱이 스스로를 깐 적이 있으면 확인 화면 없이 끝낼 수 있다.
             // 아직 아니라면 받아만 두고, 사용자가 앱을 열었을 때 배너로 잇는다 —
             // 배경에 있는 앱은 확인 화면을 띄울 수 없기 때문이다
             if (state.value is UpdateState.Downloaded && canInstallSilently(context)) {
                 install(context, found.version)
             }
+        } else {
+            RunLog.add("업데이트 확인 · 최신 버전")
         }
     }
 
@@ -156,6 +168,7 @@ object Updater {
 
         if (apk == null || apk.length() == 0L) {
             state.value = UpdateState.Failed
+            RunLog.add("업데이트 · 내려받지 못함")
             return
         }
         state.value = UpdateState.Downloaded(version)
