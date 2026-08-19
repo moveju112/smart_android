@@ -227,7 +227,7 @@ class MacroService : NotificationListenerService() {
         val job = scope.launch {
             EngineState.markRunning(macro.id, true)
             Log.i(TAG, "실행: ${macro.name}")
-            RunLog.add(if (force) "▶ ${macro.name} · 강제 실행" else "▶ ${macro.name}")
+            RunLog.add(if (force) "▶ ${macro.name} · 지금 실행" else "▶ ${macro.name}")
             try {
                 for (action in macro.actions) {
                     if (!runAction(action, force)) {

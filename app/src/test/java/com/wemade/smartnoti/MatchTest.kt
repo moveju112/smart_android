@@ -51,3 +51,27 @@ class MatchTest {
         assertEquals(sample, round)
     }
 }
+
+/** 대기 시간을 사람이 읽는 말로 — 한 시간이 넘으면 분으로 적지 않는다 */
+class HumanSecondsTest {
+
+    @Test
+    fun `한 시간이 넘으면 시간으로 적는다`() {
+        assertEquals("2시간", humanSeconds(7200))
+        assertEquals("1시간 30분", humanSeconds(5400))
+        assertEquals("167시간 10분", humanSeconds(601800))
+    }
+
+    @Test
+    fun `한 시간이 안 되면 분과 초로 적는다`() {
+        assertEquals("30분", humanSeconds(1800))
+        assertEquals("1분 5초", humanSeconds(65))
+        assertEquals("59초", humanSeconds(59))
+    }
+
+    @Test
+    fun `0초는 기다리지 않는다는 뜻이다`() {
+        assertEquals("기다리지 않음", humanSeconds(0))
+        assertEquals("기다리지 않음", humanSeconds(-1))
+    }
+}

@@ -113,25 +113,19 @@ fun EditScreen(macro: Macro, onSave: (Macro) -> Unit, onDelete: () -> Unit, onCa
     // 지금 화면의 내용을 저장할 매크로 한 개로 모은다
     fun collect(): Macro = if (simple) draft.withClearRule(rule) else draft
 
-    // 고친 것이 있는데 그냥 나가면 그대로 사라진다. 나가기 전에 한 번 묻는다
+    /**
+     * 화면에 들어온 순간의 모양.
+     *
+     * 옛 형식 매크로는 여는 것만으로 새 형식으로 펴진다. 원본과 견주면 손도 대지 않았는데
+     * 고친 것으로 세어, 나갈 때마다 저장하겠느냐고 묻게 된다. 그래서 펴진 뒤의 모양을 잡아 둔다.
+     */
+    val opened by rememberSaveable(stateSaver = MacroSaver) { mutableStateOf(collect()) }
+
+    // 고친 것이 있는데 그냥 나가면 그대로 사라진다. 나가기 전에 저장할지 묻는다
     fun leave() {
-        if (collect() == macro) onCancel() else confirmLeave = true
+        if (collect() == opened) onCancel() else confirmLeave = true
     }
     BackHandler { leave() }
-
-    if (confirmLeave) {
-        AlertDialog(
-            onDismissRequest = { confirmLeave = false },
-            title = { Text("고친 것을 버릴까요?") },
-            text = { Text("저장하지 않은 내용이 사라집니다.") },
-            confirmButton = {
-                TextButton(onClick = { confirmLeave = false; onCancel() }) {
-                    Text("버리고 나가기", color = MaterialTheme.colorScheme.error)
-                }
-            },
-            dismissButton = { TextButton(onClick = { confirmLeave = false }) { Text("계속 고치기") } }
-        )
-    }
 
     if (confirmDelete) {
         AlertDialog(
@@ -157,11 +151,28 @@ fun EditScreen(macro: Macro, onSave: (Macro) -> Unit, onDelete: () -> Unit, onCa
         if (isNew) askName = true else onSave(collect())
     }
 
+    if (confirmLeave) {
+        AlertDialog(
+            onDismissRequest = { confirmLeave = false },
+            title = { Text("수정한 내용을 저장할까요?") },
+            text = { Text("저장하지 않으면 고친 내용이 사라집니다.") },
+            confirmButton = {
+                TextButton(onClick = { confirmLeave = false; save() }) { Text("저장") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmLeave = false; onCancel() }) {
+                    Text("저장 안 함", color = MaterialTheme.colorScheme.error)
+                }
+            }
+        )
+    }
+
     if (askName) {
         TextPrompt(
             title = "이름을 정해 주세요",
             hint = "목록에서 이 이름으로 찾습니다",
             initial = draft.name,
+            confirmLabel = "저장",
             onDone = { onSave(collect().copy(name = it.ifBlank { draft.name })); askName = false },
             onClose = { askName = false }
         )
@@ -418,6 +429,7 @@ fun TextPrompt(
     title: String,
     hint: String,
     initial: String,
+    confirmLabel: String = "확인",
     onDone: (String) -> Unit,
     onClose: () -> Unit
 ) {
@@ -434,7 +446,7 @@ fun TextPrompt(
                 modifier = Modifier.fillMaxWidth()
             )
         },
-        confirmButton = { TextButton(onClick = { onDone(value) }) { Text("확인") } },
+        confirmButton = { TextButton(onClick = { onDone(value) }) { Text(confirmLabel) } },
         dismissButton = { TextButton(onClick = onClose) { Text("취소") } }
     )
 }

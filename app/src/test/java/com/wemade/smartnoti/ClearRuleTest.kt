@@ -1,6 +1,7 @@
 package com.wemade.smartnoti
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 
@@ -73,6 +74,36 @@ class ClearRuleTest {
         assertEquals(Trigger.Notification("com.x", "X", "재부팅"), m.firstTrigger())
         assertEquals(listOf(Action.Delay(60), Action.ClearNotification("com.x", "X", "재부팅")), m.actions)
         assertEquals(rule, m.asClearRule())
+    }
+
+    /**
+     * 편집 화면은 "고친 것이 있나"를 지금 모양과 처음 모양을 견주어 판단한다.
+     * 그런데 옛 형식 매크로는 화면에 들어오는 것만으로 새 형식으로 펴진다.
+     * 그 차이를 사람이 고친 것으로 세면, 아무것도 안 건드렸는데 저장하겠느냐고 묻게 된다.
+     */
+    @Test
+    fun `옛 형식 매크로는 되펴는 것만으로 모양이 달라진다`() {
+        val old = Macro(
+            id = 1, name = "t",
+            trigger = Trigger.Notification("com.x", "X", "야옹"),
+            actions = listOf(Action.ClearNotification("com.x", "X", "야옹"))
+        )
+        val opened = old.withClearRule(old.asClearRule()!!)
+
+        assertNotEquals(old, opened)
+        assertEquals(old.asClearRule(), opened.asClearRule())
+    }
+
+    @Test
+    fun `트리거 문구가 비어 있던 매크로도 되펴면 문구가 채워진다`() {
+        val old = macro(
+            Trigger.Notification("com.x", "X", ""),
+            Action.ClearNotification("com.x", "X", "재부팅")
+        )
+        val opened = old.withClearRule(old.asClearRule()!!)
+
+        assertNotEquals(old, opened)
+        assertEquals("재부팅", (opened.firstTrigger() as Trigger.Notification).text)
     }
 
     @Test

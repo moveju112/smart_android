@@ -229,7 +229,7 @@ private fun MacroListScreen(
             outcome.onSuccess { result ->
                 // 읽기만 하고 아직 덮어쓰지 않는다. 무엇이 사라지는지 보여주고 확인을 받는다
                 if (result.macros.isEmpty() && result.skippedMacros.isEmpty()) {
-                    snackbar.showMessage("매크로가 들어 있지 않은 파일입니다")
+                    snackbar.showMessage("매크로가 들어 있지 않은 파일입니다. 다른 파일을 골라 주세요")
                 } else {
                     importReport = result
                 }
@@ -253,7 +253,7 @@ private fun MacroListScreen(
             }
             snackbar.showMessage(
                 if (outcome.isSuccess) "매크로 ${MacroStore.macros.value.size}개를 백업했습니다"
-                else "파일을 저장하지 못했습니다"
+                else "파일을 저장하지 못했습니다. 다른 폴더를 골라 다시 해 보세요"
             )
         }
     }
@@ -395,7 +395,7 @@ private fun MacroListScreen(
                                 // 강제 실행은 대기를 건너뛰므로 곧 끝난다. 끝나면 결과를 그 자리에서 보여준다
                                 service.runNow(macro)?.join()
                                 val last = RunLog.lines.value.firstOrNull()?.substringAfter("  ")
-                                snackbar.showMessage(last ?: "${macro.name} 실행함")
+                                snackbar.showMessage(last ?: "${macro.name} · 실행했습니다")
                             }
                         }
                     },

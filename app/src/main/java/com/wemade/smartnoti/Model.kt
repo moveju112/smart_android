@@ -248,13 +248,23 @@ fun Macro.oneLine(): String = asClearRule()?.summary()
     ?: (allTriggers().joinToString(" 또는 ") { it.summary() }.ifBlank { "언제인지 안 정함" } +
         if (actions.isEmpty()) " · 하는 일 없음" else " · " + actions.joinToString(", ") { it.summary() })
 
-/** 1800초가 몇 분인지 사람이 세지 않게 한다 */
+/**
+ * 1800초가 몇 분인지 사람이 세지 않게 한다.
+ * 한 시간이 넘으면 분으로 적지 않는다 — "10030분"은 읽어도 얼마인지 모른다.
+ */
 fun humanSeconds(seconds: Int): String = when {
     seconds <= 0 -> "기다리지 않음"
     seconds < 60 -> "${seconds}초"
-    seconds % 3600 == 0 -> "${seconds / 3600}시간"
-    seconds % 60 == 0 -> "${seconds / 60}분"
-    else -> "${seconds / 60}분 ${seconds % 60}초"
+    seconds < 3600 -> {
+        val minutes = seconds / 60
+        val rest = seconds % 60
+        if (rest == 0) "${minutes}분" else "${minutes}분 ${rest}초"
+    }
+    else -> {
+        val hours = seconds / 3600
+        val minutes = (seconds % 3600) / 60
+        if (minutes == 0) "${hours}시간" else "${hours}시간 ${minutes}분"
+    }
 }
 
 /** 지금 떠 있는 알림 한 줄 */
@@ -294,7 +304,7 @@ fun Action.summary(): String = when (this) {
         if (text.isBlank()) "$app 알림 삭제" else "$app 알림 삭제 \u201C$text\u201D"
     }
     is Action.Broadcast -> "브로드캐스트 " + action.ifBlank { className.ifBlank { packageName } }
-    is Action.Delay -> "${seconds}초 대기"
+    is Action.Delay -> if (seconds <= 0) "기다리지 않음" else "${humanSeconds(seconds)} 대기"
     is Action.StopIfBluetooth -> {
         val device = deviceName.ifBlank { address.ifBlank { "기기" } }
         "$device " + (if (connected) "연결됐으면" else "끊겼으면") + " 중단"
