@@ -5,6 +5,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
@@ -297,7 +298,15 @@ class MacroService : NotificationListenerService() {
                 }
                 if (action.extraName.isNotBlank()) intent.putExtra(action.extraName, action.extraValue)
                 runCatching { sendBroadcast(intent) }
-                    .onSuccess { RunLog.add("브로드캐스트 전송 · ${action.action} → ${action.packageName}") }
+                    .onSuccess {
+                        RunLog.add("브로드캐스트 전송 · ${action.action} → ${action.packageName}")
+                        // 보내는 것까지는 늘 되고, 받는 쪽이 권한을 걸어 두면 거기서 조용히 버려진다
+                        if (action.packageName == WIREGUARD_PACKAGE &&
+                            checkSelfPermission(WIREGUARD_PERMISSION) != PackageManager.PERMISSION_GRANTED
+                        ) {
+                            RunLog.add("WireGuard 원격 제어 권한이 없어 전달되지 않았을 수 있음 · 앱을 열어 허용하세요")
+                        }
+                    }
                     .onFailure {
                         Log.w(TAG, "브로드캐스트 실패: ${it.message}")
                         RunLog.add("브로드캐스트 실패 · ${it.message}")

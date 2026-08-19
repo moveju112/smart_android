@@ -137,7 +137,7 @@ fun EditScreen(macro: Macro, onSave: (Macro) -> Unit, onDelete: () -> Unit, onCa
                     Text("지우기", color = MaterialTheme.colorScheme.error)
                 }
             },
-            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("그대로 두기") } }
+            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("취소") } }
         )
     }
 

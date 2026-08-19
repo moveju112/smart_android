@@ -18,6 +18,11 @@
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
     <!-- 매크로를 만들 때 설치된 앱 목록에서 고르기 위함 -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+    <!--
+        WireGuard 터널을 켜고 끄는 브로드캐스트를 받는 리시버가 이 권한을 요구한다.
+        WireGuard가 깔려 있어야 존재하는 권한이라, 그 매크로를 쓸 때만 묻는다.
+    -->
+    <uses-permission android:name="com.wireguard.android.permission.CONTROL_TUNNELS" />
 
     <application
         android:allowBackup="true"

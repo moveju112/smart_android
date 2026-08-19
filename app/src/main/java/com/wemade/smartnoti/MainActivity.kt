@@ -170,6 +170,25 @@ private fun AppRoot(resumeTick: Int) {
         }
     }
 
+    /**
+     * WireGuard 터널을 켜고 끄는 매크로가 있을 때만 그 권한을 묻는다.
+     *
+     * WireGuard가 리시버에 자기 권한을 걸어 두어서, 없으면 브로드캐스트가 아무 말 없이 버려진다.
+     * 쓰지도 않는 사람에게 미리 물을 일은 아니라 매크로가 생긴 뒤에 묻는다.
+     */
+    val macrosForPermission by MacroStore.macros.collectAsState()
+    val askWireGuard = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
+    LaunchedEffect(macrosForPermission) {
+        val usesWireGuard = macrosForPermission.any { macro ->
+            macro.actions.any { it is Action.Broadcast && it.packageName == WIREGUARD_PACKAGE }
+        }
+        if (usesWireGuard &&
+            context.checkSelfPermission(WIREGUARD_PERMISSION) != PackageManager.PERMISSION_GRANTED
+        ) {
+            runCatching { askWireGuard.launch(WIREGUARD_PERMISSION) }
+        }
+    }
+
     when (val current = screen) {
         is Screen.List -> MacroListScreen(
             resumeTick = resumeTick,
@@ -211,6 +230,18 @@ private fun MacroListScreen(
 
     var listenerEnabled by remember { mutableStateOf(isListenerEnabled(context)) }
     LaunchedEffect(resumeTick) { listenerEnabled = isListenerEnabled(context) }
+
+    /**
+     * 목록의 차례는 화면에 들어올 때 한 번만 정한다.
+     *
+     * 꺼둔 매크로를 아래로 내리는 것은 목록을 열었을 때 도는 것부터 보이라는 뜻이지,
+     * 스위치를 누를 때마다 카드가 발밑에서 자리를 옮기라는 뜻이 아니다.
+     * 바로 다시 정렬하면 방금 누른 카드가 사라지고 다른 카드가 그 자리로 올라와,
+     * 한 번 더 누르면 엉뚱한 매크로가 꺼진다.
+     */
+    val order = remember(resumeTick) {
+        MacroStore.macros.value.sortedByDescending { it.enabled }.map { it.id }
+    }
 
     var menuOpen by remember { mutableStateOf(false) }
     var importReport by remember { mutableStateOf<ImportResult?>(null) }
@@ -314,7 +345,7 @@ private fun MacroListScreen(
                     Text("지우기", color = MaterialTheme.colorScheme.error)
                 }
             },
-            dismissButton = { TextButton(onClick = { deleting = null }) { Text("그대로 두기") } }
+            dismissButton = { TextButton(onClick = { deleting = null }) { Text("취소") } }
         )
     }
     if (showNewMacro) NewMacroDialog(onPick = { showNewMacro = false; onAdd(it) }) { showNewMacro = false }
@@ -431,7 +462,7 @@ private fun MacroListScreen(
                 onDelete = { deleting = it }
             )
 
-            macroItems(loose, handlers())
+            macroItems(loose.inOrder(order), handlers())
 
             folders.forEach { (folder, inside) ->
                 val isCollapsed = folder in collapsed
@@ -446,7 +477,7 @@ private fun MacroListScreen(
                         FolderState.setCollapsed(context, folder, next)
                     }
                 }
-                if (!isCollapsed) macroItems(inside, handlers())
+                if (!isCollapsed) macroItems(inside.inOrder(order), handlers())
             }
 
             if (macros.isEmpty()) {
@@ -470,9 +501,15 @@ private data class MacroActions(
     val onDelete: (Macro) -> Unit
 )
 
-/** 매크로 여러 장을 목록에 붙인다. 꺼둔 것은 아래로 내린다 — 지금 도는 것부터 눈에 들어와야 한다 */
+/** 화면에 들어올 때 정해 둔 차례로 줄 세운다. 그 사이 새로 생긴 것은 맨 뒤에 붙는다 */
+private fun List<Macro>.inOrder(order: List<Long>): List<Macro> {
+    val rank = order.withIndex().associate { (at, id) -> id to at }
+    return sortedBy { rank[it.id] ?: Int.MAX_VALUE }
+}
+
+/** 매크로 여러 장을 목록에 붙인다 */
 private fun LazyListScope.macroItems(list: List<Macro>, actions: MacroActions) {
-    items(list.sortedByDescending { it.enabled }, key = { it.id }) { macro ->
+    items(list, key = { it.id }) { macro ->
         MacroCard(
             macro = macro,
             running = macro.id in actions.running,
@@ -1055,7 +1092,7 @@ private fun ImportConfirmDialog(
             }
         },
         confirmButton = { TextButton(onClick = onConfirm) { Text("불러오기") } },
-        dismissButton = { TextButton(onClick = onClose) { Text("그대로 두기") } }
+        dismissButton = { TextButton(onClick = onClose) { Text("취소") } }
     )
 }
 
