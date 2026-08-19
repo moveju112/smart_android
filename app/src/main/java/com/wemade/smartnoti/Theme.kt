@@ -2,6 +2,8 @@ package com.wemade.smartnoti
 
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
@@ -9,6 +11,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -138,4 +142,28 @@ fun reduceMotion(): Boolean {
             1f
         ) == 0f
     }
+}
+
+/**
+ * 이 앱의 스위치.
+ *
+ * 켜고 끄는 일은 자주 하지 않는데 목록에 다섯 개가 세로로 늘어서면 화면에서 가장 진한 것이 된다.
+ * 정작 읽어야 할 것은 매크로가 무엇을 하는지다. 그래서 판은 연하게 두고 손잡이만 진하게 남긴다.
+ */
+@Composable
+fun QuietSwitch(checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    Switch(
+        checked = checked,
+        onCheckedChange = onCheckedChange,
+        modifier = Modifier.scale(0.85f),
+        colors = SwitchDefaults.colors(
+            checkedThumbColor = scheme.primary,
+            checkedTrackColor = scheme.primaryContainer,
+            checkedBorderColor = scheme.primary,
+            uncheckedThumbColor = scheme.outline,
+            uncheckedTrackColor = scheme.surfaceVariant,
+            uncheckedBorderColor = scheme.outline
+        )
+    )
 }

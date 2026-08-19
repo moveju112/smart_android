@@ -235,7 +235,7 @@ fun Macro.withClearRule(rule: ClearRule): Macro = withTriggers(
 /** 목록에 뿌릴 한 줄 — 어느 앱의 무슨 문구를 언제 지우는지 */
 fun ClearRule.summary(): String {
     val app = appLabel.ifBlank { packageName.ifBlank { "모든 앱" } }
-    val what = if (text.isBlank()) "알림 전부" else "\"$text\""
+    val what = if (text.isBlank()) "알림 전부" else "\u201C$text\u201D"
     val when_ = if (seconds > 0) "${humanSeconds(seconds)} 뒤" else "바로"
     return "$app · $what · $when_ 지움"
 }
@@ -279,7 +279,7 @@ fun matchesText(needle: String, vararg haystack: String?): Boolean =
 fun Trigger.summary(): String = when (this) {
     is Trigger.Notification -> {
         val app = appLabel.ifBlank { packageName.ifBlank { "모든 앱" } }
-        if (text.isBlank()) "$app 알림" else "$app 알림 \"$text\""
+        if (text.isBlank()) "$app 알림" else "$app 알림 \u201C$text\u201D"
     }
     is Trigger.Bluetooth -> {
         val device = deviceName.ifBlank { address.ifBlank { "모든 기기" } }
@@ -291,7 +291,7 @@ fun Trigger.summary(): String = when (this) {
 fun Action.summary(): String = when (this) {
     is Action.ClearNotification -> {
         val app = appLabel.ifBlank { packageName.ifBlank { "모든 앱" } }
-        if (text.isBlank()) "$app 알림 삭제" else "$app 알림 삭제 \"$text\""
+        if (text.isBlank()) "$app 알림 삭제" else "$app 알림 삭제 \u201C$text\u201D"
     }
     is Action.Broadcast -> "브로드캐스트 " + action.ifBlank { className.ifBlank { packageName } }
     is Action.Delay -> "${seconds}초 대기"

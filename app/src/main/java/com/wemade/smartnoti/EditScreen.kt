@@ -49,7 +49,6 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -308,18 +307,6 @@ private fun LazyListScope.clearRuleSections(
 ) {
     item { ClearSentence(rule, onChange) }
 
-    item {
-        LiveNotificationPicker(emphasis = false) { pkg, label, title, text, clearable ->
-            onChange(
-                rule.copy(
-                    packageName = pkg,
-                    appLabel = label,
-                    text = text.ifBlank { title }
-                )
-            )
-        }
-    }
-
     item { ClearAllWarning(rule.packageName, rule.text) }
 
 }
@@ -331,7 +318,7 @@ private fun ClearSentence(rule: ClearRule, onChange: (ClearRule) -> Unit) {
 
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Column(
-            Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 22.dp),
+            Modifier.fillMaxWidth().padding(start = 18.dp, end = 18.dp, top = 22.dp, bottom = 18.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             SentenceRow {
@@ -355,6 +342,19 @@ private fun ClearSentence(rule: ClearRule, onChange: (ClearRule) -> Unit) {
                 ) { picking = "seconds" }
                 Tail(if (rule.seconds > 0) "뒤에 지웁니다" else "지웁니다")
             }
+        }
+
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+        // 문구를 손으로 맞추다 틀리는 일이 가장 흔한 실패다. 떠 있는 알림에서 그대로 가져온다
+        LiveNotificationPicker(emphasis = false) { pkg, label, title, text, _ ->
+            onChange(
+                rule.copy(
+                    packageName = pkg,
+                    appLabel = label,
+                    text = text.ifBlank { title }
+                )
+            )
         }
     }
 
@@ -395,13 +395,12 @@ private fun Slot(text: String, filled: Boolean, onClick: () -> Unit) {
         style = SentenceStyle,
         color = if (filled) scheme.onPrimaryContainer else scheme.onSurfaceVariant,
         modifier = Modifier
-            .minimumInteractiveComponentSize()
             .background(
                 if (filled) scheme.primaryContainer else scheme.surfaceVariant,
                 RoundedCornerShape(8.dp)
             )
             .clickable(role = Role.Button, onClick = onClick)
-            .padding(horizontal = 9.dp, vertical = 5.dp)
+            .padding(horizontal = 10.dp, vertical = 8.dp)
     )
 }
 
@@ -467,7 +466,10 @@ private fun SecondsField(seconds: Int, onChange: (Int) -> Unit) {
         value = seconds.toString(),
         onValueChange = { onChange(it.filter(Char::isDigit).take(6).toIntOrNull() ?: 0) },
         label = { Text("몇 초 뒤") },
-        supportingText = { Text(humanSeconds(seconds)) },
+        // 60초가 넘어야 "5분"처럼 바꿔 읽을 값이 생긴다. 그 아래는 같은 말을 두 번 하는 셈이다
+        supportingText = if (seconds >= 60) {
+            { Text(humanSeconds(seconds)) }
+        } else null,
         singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
         modifier = Modifier.fillMaxWidth()
@@ -517,7 +519,7 @@ private fun LazyListScope.advancedSections(
                     onChange(draft.withTriggers(triggers.mapIndexed { i, t -> if (i == index) changed else t }))
                 }
             }
-            OutlinedButton(
+            TextButton(
                 onClick = { onChange(draft.withTriggers(triggers + Trigger.Notification())) },
                 modifier = Modifier.fillMaxWidth()
             ) {
@@ -629,39 +631,38 @@ private fun ActionCard(
     }
 
     Card(colors = CardDefaults.cardColors(containerColor = scheme.surface)) {
-        Row(Modifier.fillMaxWidth()) {
-            // 단계의 성격을 왼쪽 색 띠로 — 대기·조건·실행이 목록에서 바로 갈린다
-            Box(Modifier.width(4.dp).heightIn(min = 56.dp).background(accent))
-            Column(Modifier.padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 12.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        "${index + 1}",
-                        style = MonoSmall,
-                        color = scheme.onSurfaceVariant
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        "$kind · ${action.kindLabel()}",
-                        style = MaterialTheme.typography.titleSmall,
-                        color = scheme.onSurface,
-                        modifier = Modifier.weight(1f)
-                    )
-                    IconButton(onClick = { onMove(-1) }, enabled = index > 0) {
-                        Icon(Icons.Default.ArrowUpward, "위로", Modifier.size(18.dp))
-                    }
-                    IconButton(onClick = { onMove(1) }, enabled = index < total - 1) {
-                        Icon(Icons.Default.ArrowDownward, "아래로", Modifier.size(18.dp))
-                    }
-                    IconButton(onClick = onRemove) {
-                        Icon(Icons.Default.Close, "단계 빼기", Modifier.size(18.dp), tint = scheme.error)
-                    }
+        Column(Modifier.padding(start = 14.dp, end = 4.dp, top = 8.dp, bottom = 12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                StepMark(action.step(), accent)
+                Spacer(Modifier.width(9.dp))
+                Text(
+                    "${index + 1}",
+                    style = MonoSmall,
+                    color = scheme.onSurfaceVariant
+                )
+                Spacer(Modifier.width(7.dp))
+                Text(
+                    "$kind · ${action.kindLabel()}",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = scheme.onSurface,
+                    modifier = Modifier.weight(1f)
+                )
+                IconButton(onClick = { onMove(-1) }, enabled = index > 0) {
+                    Icon(Icons.Default.ArrowUpward, "위로", Modifier.size(18.dp))
                 }
-                Column(
-                    Modifier.padding(end = 8.dp, top = 4.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    ActionEditor(action, onEdit)
+                IconButton(onClick = { onMove(1) }, enabled = index < total - 1) {
+                    Icon(Icons.Default.ArrowDownward, "아래로", Modifier.size(18.dp))
                 }
+                // 저장 전이라 되돌릴 수 있는 일이다. 빨강까지 쓸 자리는 아니다
+                IconButton(onClick = onRemove) {
+                    Icon(Icons.Default.Close, "단계 빼기", Modifier.size(18.dp), tint = scheme.onSurfaceVariant)
+                }
+            }
+            Column(
+                Modifier.padding(end = 8.dp, top = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                ActionEditor(action, onEdit)
             }
         }
     }
@@ -799,7 +800,7 @@ private fun SwitchRow(title: String, hint: String?, checked: Boolean, onChange: 
                 )
             }
         }
-        Switch(checked = checked, onCheckedChange = onChange)
+        QuietSwitch(checked = checked, onCheckedChange = onChange)
     }
 }
 
@@ -967,7 +968,6 @@ private fun ConditionEditor(condition: Condition, onChange: (Condition) -> Unit)
         ChoiceChip("위치", condition is Condition.Place, Modifier.weight(1f)) {
             if (condition !is Condition.Place) onChange(Condition.Place())
         }
-        Spacer(Modifier.weight(1f))
     }
 
     when (condition) {
@@ -1206,7 +1206,7 @@ private fun LiveNotificationPicker(
             modifier = Modifier.fillMaxWidth().height(46.dp)
         ) { Text("지금 떠 있는 알림에서 고르기") }
     } else {
-        OutlinedButton(onClick = { open = true }, modifier = Modifier.fillMaxWidth()) {
+        TextButton(onClick = { open = true }, modifier = Modifier.fillMaxWidth()) {
             Text("지금 떠 있는 알림에서 고르기")
         }
     }

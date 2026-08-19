@@ -38,6 +38,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -83,12 +84,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.serialization.encodeToString
@@ -361,7 +364,7 @@ private fun MacroListScreen(
         LazyColumn(
             modifier = Modifier.widthIn(max = 720.dp).fillMaxSize(),
             contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 96.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             (updateState as? UpdateState.Downloaded)?.let { ready ->
                 item {
@@ -527,7 +530,7 @@ private fun MacroCard(
                 onLongClick = { menuOpen = true }
             )
         ) {
-            Column(Modifier.padding(start = 14.dp, end = 8.dp, top = 12.dp, bottom = 12.dp)) {
+            Column(Modifier.padding(start = 14.dp, end = 8.dp, top = 10.dp, bottom = 12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         macro.name,
@@ -537,25 +540,31 @@ private fun MacroCard(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f)
                     )
-                    IconButton(onClick = onRunNow, enabled = engineReady) {
+                    IconButton(onClick = onRunNow, enabled = engineReady, modifier = Modifier.size(40.dp)) {
                         Icon(
                             Icons.Default.PlayArrow,
                             contentDescription = "지금 실행",
+                            modifier = Modifier.size(20.dp),
                             tint = if (engineReady) scheme.primary else scheme.onSurfaceVariant
                         )
                     }
-                    Switch(checked = macro.enabled, onCheckedChange = onToggle)
+                    QuietSwitch(checked = macro.enabled, onCheckedChange = onToggle)
                 }
 
-                Spacer(Modifier.padding(top = 2.dp))
+                Spacer(Modifier.padding(top = 5.dp))
 
                 // 알림 지우기는 단계를 펼쳐 봐야 알 게 없다. 한 줄로 접어 목록을 가볍게 둔다
                 val rule = macro.asClearRule()
                 Box(Modifier.alpha(if (dim) 0.45f else 1f)) {
                     if (rule != null) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            KindTag("알림 지우기")
-                            Spacer(Modifier.width(8.dp))
+                        // 단계를 펼쳐도 알 게 없는 모양이라 한 칸으로 접는다. 표식은 그대로 트리거다
+                        RailRow(
+                            step = Step.Trigger,
+                            isFirst = true,
+                            isLast = true,
+                            lineColor = scheme.outline,
+                            markerColor = scheme.primary
+                        ) {
                             Text(
                                 rule.summary(),
                                 style = MaterialTheme.typography.bodySmall,
@@ -609,22 +618,6 @@ private fun MacroCard(
     }
 }
 
-/** 매크로가 어떤 종류인지 다는 작은 꼬리표 */
-@Composable
-private fun KindTag(label: String) {
-    Text(
-        label,
-        style = MonoSmall,
-        color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier
-            .background(
-                MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
-                RoundedCornerShape(4.dp)
-            )
-            .padding(horizontal = 6.dp, vertical = 2.dp)
-    )
-}
-
 /** 무엇을 만들지 먼저 고르게 한다. 대부분은 알림 지우기 하나면 끝난다 */
 @Composable
 private fun NewMacroDialog(onPick: (Macro) -> Unit, onClose: () -> Unit) {
@@ -671,18 +664,58 @@ private fun NewMacroDialog(onPick: (Macro) -> Unit, onClose: () -> Unit) {
     )
 }
 
+/**
+ * 비어 있는 목록.
+ *
+ * 글로 "매크로를 만드세요"라고 적는 대신, 매크로가 어떻게 생긴 것인지를 레일로 보여준다.
+ * 목록에서도 편집에서도 쓰는 그 표식이라, 이 화면이 곧 사용법이 된다.
+ */
 @Composable
 private fun EmptyState() {
+    val scheme = MaterialTheme.colorScheme
+    val sample = listOf(
+        Step.Trigger to "알림이 뜨면",
+        Step.Wait to "잠깐 기다렸다가",
+        Step.Act to "그 알림을 지웁니다"
+    )
+
     Column(
-        Modifier.fillMaxWidth().padding(top = 60.dp),
+        Modifier.fillMaxWidth().padding(top = 56.dp, start = 24.dp, end = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text("아직 매크로가 없습니다", style = MaterialTheme.typography.titleMedium)
-        Spacer(Modifier.padding(top = 6.dp))
+
+        Spacer(Modifier.padding(top = 20.dp))
+
+        Column(Modifier.alpha(0.5f)) {
+            sample.forEachIndexed { index, (step, text) ->
+                RailRow(
+                    step = step,
+                    isFirst = index == 0,
+                    isLast = index == sample.lastIndex,
+                    lineColor = scheme.outline,
+                    markerColor = when (step) {
+                        Step.Trigger -> scheme.primary
+                        Step.Wait -> scheme.secondary
+                        else -> scheme.onSurfaceVariant
+                    }
+                ) {
+                    Text(
+                        text,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = scheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+
+        Spacer(Modifier.padding(top = 20.dp))
+
         Text(
-            "아래 버튼으로 만들거나,\n위 메뉴에서 백업을 불러오세요.",
+            "이런 것을 만듭니다. 아래 버튼으로 시작하거나, 위 메뉴에서 백업을 불러오세요.",
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = scheme.onSurfaceVariant,
+            textAlign = TextAlign.Center
         )
     }
 }
@@ -879,8 +912,8 @@ private fun RunLogScreen(onBack: () -> Unit) {
                 Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
             ) {
-                Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
+                Row(Modifier.padding(start = 14.dp, end = 10.dp, top = 12.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f).padding(end = 12.dp)) {
                         Text("들어오는 알림 엿보기", style = MaterialTheme.typography.bodyMedium)
                         Text(
                             "모든 알림의 앱과 문구를 여기에 남깁니다. 매크로 문구를 맞출 때만 켜세요.",
@@ -888,10 +921,7 @@ private fun RunLogScreen(onBack: () -> Unit) {
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                    Switch(
-                        checked = peek,
-                        onCheckedChange = { Diagnostics.peekNotifications.value = it }
-                    )
+                    QuietSwitch(checked = peek) { Diagnostics.peekNotifications.value = it }
                 }
             }
 
@@ -908,8 +938,9 @@ private fun RunLogScreen(onBack: () -> Unit) {
                 Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
             ) {
-                items(lines) { line ->
-                    Row(Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
+                itemsIndexed(lines) { index, line ->
+                    if (index > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    Row(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
                         Text(
                             line.substringBefore("  "),
                             style = MonoSmall,
@@ -922,7 +953,6 @@ private fun RunLogScreen(onBack: () -> Unit) {
                             color = MaterialTheme.colorScheme.onSurface
                         )
                     }
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 }
             }
         }

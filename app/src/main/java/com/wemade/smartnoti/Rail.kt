@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -25,6 +26,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
 
@@ -97,22 +99,53 @@ fun RailRow(
                     }
 
                     // 2. 이 칸이 무엇인지 알리는 표식
-                    when (step) {
-                        Step.Trigger -> drawCircle(markerColor, 4.5.dp.toPx(), Offset(x, midY))
-                        Step.Act -> drawRect(
-                            markerColor,
-                            Offset(x - 3.5.dp.toPx(), midY - 3.5.dp.toPx()),
-                            androidx.compose.ui.geometry.Size(7.dp.toPx(), 7.dp.toPx())
-                        )
-                        Step.Gate -> drawCircle(markerColor, 4.dp.toPx(), Offset(x, midY), style = Stroke(stroke))
-                        Step.Wait -> drawCircle(markerColor, 2.dp.toPx(), Offset(x, midY))
-                    }
+                    drawStepMark(step, markerColor, Offset(x, midY), stroke)
                 }
         )
         Box(Modifier.padding(start = 6.dp, bottom = 3.dp), contentAlignment = Alignment.CenterStart) {
             content()
         }
     }
+}
+
+/** 표식 하나를 그린다. 레일과 편집 화면이 이 한 규칙을 같이 쓴다 */
+private fun DrawScope.drawStepMark(step: Step, color: Color, at: Offset, stroke: Float) {
+    when (step) {
+        Step.Trigger -> drawCircle(color, 4.5.dp.toPx(), at)
+        Step.Act -> drawRect(
+            color,
+            Offset(at.x - 3.5.dp.toPx(), at.y - 3.5.dp.toPx()),
+            androidx.compose.ui.geometry.Size(7.dp.toPx(), 7.dp.toPx())
+        )
+        Step.Gate -> drawCircle(color, 4.dp.toPx(), at, style = Stroke(stroke))
+        Step.Wait -> drawCircle(color, 2.dp.toPx(), at)
+    }
+}
+
+/**
+ * 레일에서 떼어낸 표식 하나.
+ * 편집 화면의 단계 머리글에 붙어, 목록에서 보던 그 모양이 여기서도 같은 뜻이 되게 한다.
+ */
+@Composable
+fun StepMark(step: Step, color: Color, modifier: Modifier = Modifier) {
+    Box(
+        modifier
+            .size(14.dp)
+            .semantics {
+                contentDescription = when (step) {
+                    Step.Trigger -> "트리거"
+                    Step.Wait -> "대기"
+                    Step.Act -> "실행"
+                    Step.Gate -> "조건"
+                }
+            }
+            .drawBehind {
+                val at = Offset(size.width / 2, size.height / 2)
+                // 대기는 레일에서 가장 작은 표식이다. 선 없이 홀로 서는 자리에서는 조금 키운다
+                if (step == Step.Wait) drawCircle(color, 3.dp.toPx(), at)
+                else drawStepMark(step, color, at, 1.5.dp.toPx())
+            }
+    )
 }
 
 /** 실행 중이 아닐 때는 애니메이션을 아예 만들지 않는다 */
