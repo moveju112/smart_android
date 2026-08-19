@@ -1,5 +1,8 @@
 package com.wemade.smartnoti
 
+import android.app.Activity
+import android.content.Context
+import android.graphics.drawable.ColorDrawable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
@@ -8,8 +11,15 @@ import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
+import androidx.core.view.WindowInsetsControllerCompat
+import kotlinx.coroutines.flow.MutableStateFlow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
@@ -55,6 +65,11 @@ private val LightColors = lightColorScheme(
     onSurface = InkLight,
     surfaceVariant = Color(0xFFE6EBEF),
     onSurfaceVariant = MuteLight,
+    surfaceContainerLowest = CardLight,
+    surfaceContainerLow = CardLight,
+    surfaceContainer = CardLight,
+    surfaceContainerHigh = CardLight,
+    surfaceContainerHighest = Color(0xFFEDF1F4),
     outline = Color(0xFFBFC8D1),
     outlineVariant = Color(0xFFD9E0E6)
 )
@@ -78,6 +93,11 @@ private val DarkColors = darkColorScheme(
     onSurface = InkDark,
     surfaceVariant = Color(0xFF252E39),
     onSurfaceVariant = MuteDark,
+    surfaceContainerLowest = Color(0xFF0B1015),
+    surfaceContainerLow = Color(0xFF151C24),
+    surfaceContainer = CardDark,
+    surfaceContainerHigh = Color(0xFF212B36),
+    surfaceContainerHighest = Color(0xFF283340),
     outline = Color(0xFF3A4650),
     outlineVariant = Color(0xFF2A333D)
 )
@@ -118,10 +138,69 @@ private val AppTypography = Typography(
     labelLarge = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.Medium)
 )
 
+/** 화면을 밝게 볼지 어둡게 볼지 */
+enum class ThemeMode(val label: String) {
+    System("기기 설정 따름"),
+    Light("밝게"),
+    Dark("어둡게");
+
+    /** 다음 값 — 마지막까지 가면 처음으로 돌아온다 */
+    fun next(): ThemeMode = entries[(ordinal + 1) % entries.size]
+}
+
+/**
+ * 고른 화면 밝기를 기억한다.
+ *
+ * 기본은 기기 설정을 따르는 것이다. 사람이 한 번 정하면 기기가 밤이 되든 말든 그 값을 지킨다.
+ */
+object ThemeState {
+    private const val PREFS = "theme"
+    private const val KEY_MODE = "mode"
+
+    val mode = MutableStateFlow(ThemeMode.System)
+
+    // 1. 저장해 둔 값 읽기 (없거나 모르는 값이면 기기 설정 따름)
+    fun load(context: Context) {
+        val saved = prefs(context).getString(KEY_MODE, null)
+        mode.value = ThemeMode.entries.firstOrNull { it.name == saved } ?: ThemeMode.System
+    }
+
+    // 2. 다음 값으로 넘기고 바로 남긴다
+    fun cycle(context: Context) {
+        val next = mode.value.next()
+        mode.value = next
+        prefs(context).edit().putString(KEY_MODE, next.name).apply()
+    }
+
+    private fun prefs(context: Context) =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+}
+
 @Composable
 fun SmartNotiTheme(content: @Composable () -> Unit) {
+    val mode by ThemeState.mode.collectAsState()
+    val dark = when (mode) {
+        ThemeMode.System -> isSystemInDarkTheme()
+        ThemeMode.Light -> false
+        ThemeMode.Dark -> true
+    }
+    val colors = if (dark) DarkColors else LightColors
+
+    // 창 배경과 상태바 글자색도 같이 맞춘다. 안 그러면 고른 것과 반대 색이 한 번 번쩍인다
+    val view = LocalView.current
+    if (!view.isInEditMode) {
+        SideEffect {
+            val window = (view.context as? Activity)?.window ?: return@SideEffect
+            window.setBackgroundDrawable(ColorDrawable(colors.background.toArgb()))
+            WindowInsetsControllerCompat(window, view).run {
+                isAppearanceLightStatusBars = !dark
+                isAppearanceLightNavigationBars = !dark
+            }
+        }
+    }
+
     MaterialTheme(
-        colorScheme = if (isSystemInDarkTheme()) DarkColors else LightColors,
+        colorScheme = colors,
         typography = AppTypography,
         content = content
     )

@@ -44,11 +44,14 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.BrightnessAuto
+import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
@@ -111,6 +114,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        ThemeState.load(this)
         MacroStore.load(this)
         setContent { SmartNotiTheme { AppRoot(resumeTick) } }
     }
@@ -245,6 +249,7 @@ private fun MacroListScreen(
     }
 
     var menuOpen by remember { mutableStateOf(false) }
+    val themeMode by ThemeState.mode.collectAsState()
     var importReport by remember { mutableStateOf<ImportResult?>(null) }
     var showUpdate by remember { mutableStateOf(false) }
     var showNewMacro by remember { mutableStateOf(false) }
@@ -387,6 +392,22 @@ private fun MacroListScreen(
                                 showUpdate = true
                                 scope.launch { Updater.check(BuildConfig.VERSION_NAME) }
                             }
+                        )
+                        HorizontalDivider()
+                        // 메뉴는 닫지 않는다. 누른 자리에서 화면 색이 바뀌는 것을 보고 고르게 한다
+                        DropdownMenuItem(
+                            text = { Text("화면 · ${themeMode.label}") },
+                            leadingIcon = {
+                                Icon(
+                                    when (themeMode) {
+                                        ThemeMode.System -> Icons.Default.BrightnessAuto
+                                        ThemeMode.Light -> Icons.Default.LightMode
+                                        ThemeMode.Dark -> Icons.Default.DarkMode
+                                    },
+                                    null
+                                )
+                            },
+                            onClick = { ThemeState.cycle(context) }
                         )
                     }
                 }

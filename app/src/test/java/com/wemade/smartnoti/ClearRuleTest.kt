@@ -134,3 +134,18 @@ class DuplicateTest {
         assertEquals(origin.actions, copy.actions)
     }
 }
+
+/** 화면 밝기는 메뉴 항목 하나를 눌러 돌린다 — 한 바퀴 돌면 원래 자리로 와야 사람이 되돌릴 수 있다 */
+class ThemeModeTest {
+
+    @Test
+    fun `기기 설정 다음은 밝게, 그다음은 어둡게`() {
+        assertEquals(ThemeMode.Light, ThemeMode.System.next())
+        assertEquals(ThemeMode.Dark, ThemeMode.Light.next())
+    }
+
+    @Test
+    fun `세 번 누르면 처음으로 돌아온다`() {
+        assertEquals(ThemeMode.System, ThemeMode.System.next().next().next())
+    }
+}

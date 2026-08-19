@@ -180,6 +180,7 @@ class WidgetConfigActivity : ComponentActivity() {
         }
 
         enableEdgeToEdge()
+        ThemeState.load(this)
         MacroStore.load(this)
         setContent {
             SmartNotiTheme {
