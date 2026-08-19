@@ -910,6 +910,15 @@ private fun ActionEditor(action: Action, onChange: (Action) -> Unit) {
                     singleLine = true, modifier = Modifier.weight(1f)
                 )
             }
+            // WireGuard는 이름이 한 글자만 달라도 아무 일 없이 끝난다. 만들 때 짚어 준다
+            if (action.packageName == WIREGUARD_PACKAGE) {
+                Text(
+                    "추가값은 WireGuard에 있는 터널 이름이어야 합니다. 대소문자까지 똑같아야 하고, " +
+                        "다르면 신호는 가지만 아무 일도 일어나지 않습니다.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
     }
 }
