@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -75,6 +76,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.semantics.Role
 
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextOverflow
 import kotlinx.serialization.encodeToString
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -700,51 +702,6 @@ private fun Section(
     }
 }
 
-/** 자주 건드리지 않는 칸. 제목만 두고 접어 둔다 */
-@Composable
-private fun FoldableSection(
-    title: String,
-    open: Boolean,
-    onOpen: (Boolean) -> Unit,
-    content: @Composable () -> Unit
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        HorizontalDivider(
-            color = MaterialTheme.colorScheme.outline,
-            modifier = Modifier.padding(bottom = 6.dp)
-        )
-        Row(
-            Modifier.fillMaxWidth()
-                .heightIn(min = 48.dp)
-                .clickable(role = Role.Button) { onOpen(!open) },
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column {
-                Text(title, style = MaterialTheme.typography.titleMedium)
-                if (!open) {
-                    Text(
-                        "눌러서 펼치기",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-            Spacer(Modifier.weight(1f))
-            Icon(
-                if (open) Icons.Default.ArrowUpward else Icons.Default.ArrowDownward,
-                contentDescription = if (open) "접기" else "펼치기",
-                modifier = Modifier.size(18.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-        if (open) {
-            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-                Column(Modifier.padding(14.dp)) { content() }
-            }
-        }
-    }
-}
-
 @Composable
 private fun SectionHeading(number: Int, title: String, hint: String? = null) {
     Column {
@@ -1197,12 +1154,8 @@ private fun LiveNotificationPicker(
 
     // 한 화면에 두 번 나올 수 있다. 주 동작일 때만 채우고, 곁다리일 때는 테두리만 둔다
     if (emphasis) {
-        FilledTonalButton(
+        OutlinedButton(
             onClick = { open = true },
-            colors = ButtonDefaults.filledTonalButtonColors(
-                containerColor = scheme.primaryContainer,
-                contentColor = scheme.onPrimaryContainer
-            ),
             modifier = Modifier.fillMaxWidth().height(46.dp)
         ) { Text("지금 떠 있는 알림에서 고르기") }
     } else {
@@ -1237,7 +1190,8 @@ private fun LiveNotificationDialog(
                 Text("떠 있는 알림이 없거나 엔진이 꺼져 있습니다.\n지우려는 알림을 띄운 상태에서 다시 열어 보세요.")
             } else {
                 LazyColumn(Modifier.heightIn(max = 420.dp)) {
-                    items(items) { peek ->
+                    itemsIndexed(items) { index, peek ->
+                        if (index > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                         Column(
                             Modifier.fillMaxWidth()
                                 .heightIn(min = 48.dp)
@@ -1334,15 +1288,27 @@ private fun AppChooserDialog(onPick: (String, String) -> Unit, onClose: () -> Un
                     )
                 }
                 LazyColumn(Modifier.heightIn(max = 380.dp)) {
-                    items(shown) { (label, pkg) ->
+                    itemsIndexed(shown) { index, (label, pkg) ->
+                        if (index > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                         Column(
                             Modifier.fillMaxWidth()
                                 .heightIn(min = 48.dp)
                                 .clickable(role = Role.Button) { onPick(pkg, label) }
                                 .padding(vertical = 8.dp)
                         ) {
-                            Text(label, style = MaterialTheme.typography.bodyMedium)
-                            Text(pkg, style = MonoSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(
+                                label,
+                                style = MaterialTheme.typography.bodyMedium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                pkg,
+                                style = MonoSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
                         }
                     }
                 }
@@ -1375,14 +1341,20 @@ private fun DevicePicker(address: String, deviceName: String, onPick: (String, S
                     Text("짝지어 둔 기기가 없거나 블루투스 권한이 없습니다.")
                 } else {
                     LazyColumn(Modifier.heightIn(max = 380.dp)) {
-                        items(devices) { (name, addr) ->
+                        itemsIndexed(devices) { index, (name, addr) ->
+                            if (index > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                             Column(
                                 Modifier.fillMaxWidth()
                                     .heightIn(min = 48.dp)
                                     .clickable(role = Role.Button) { onPick(addr, name); open = false }
                                     .padding(vertical = 8.dp)
                             ) {
-                                Text(name, style = MaterialTheme.typography.bodyMedium)
+                                Text(
+                                    name,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
                                 Text(addr, style = MonoSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }

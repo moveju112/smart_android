@@ -766,7 +766,7 @@ private fun UpdateDialog(onClose: () -> Unit) {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 // 손대는 것이 위, 알려주는 것이 아래
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
+                    Column(Modifier.weight(1f).padding(end = 12.dp)) {
                         Text("스스로 최신으로 유지", style = MaterialTheme.typography.bodyMedium)
                         Text(
                             "하루 한 번 확인해 새 버전을 받아 깝니다. 처음 한 번은 설치 확인 화면이 뜹니다.",
@@ -774,10 +774,7 @@ private fun UpdateDialog(onClose: () -> Unit) {
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                    Switch(
-                        checked = auto,
-                        onCheckedChange = { auto = it; Updater.setAutoEnabled(context, it) }
-                    )
+                    QuietSwitch(checked = auto) { auto = it; Updater.setAutoEnabled(context, it) }
                 }
 
                 HorizontalDivider()
