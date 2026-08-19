@@ -55,6 +55,27 @@ object MacroStore {
     fun find(id: Long): Macro? = _macros.value.firstOrNull { it.id == id }
 }
 
+/**
+ * 접어 둔 폴더 이름.
+ *
+ * 목록을 접어 두는 것은 화면 상태가 아니라 사람의 결정이다. 앱을 껐다 켜도 그대로 있어야 한다.
+ */
+object FolderState {
+    private const val PREFS = "folders"
+    private const val KEY_COLLAPSED = "collapsed"
+
+    fun collapsed(context: Context): Set<String> =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getStringSet(KEY_COLLAPSED, emptySet()) ?: emptySet()
+
+    fun setCollapsed(context: Context, folder: String, collapsed: Boolean) {
+        val now = collapsed(context).toMutableSet()
+        if (collapsed) now += folder else now -= folder
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putStringSet(KEY_COLLAPSED, now).apply()
+    }
+}
+
 /** 엔진이 지금 살아 있는지, 어떤 매크로가 돌고 있는지 — 화면이 상태를 그대로 비추게 한다 */
 object EngineState {
     val connected = MutableStateFlow(false)

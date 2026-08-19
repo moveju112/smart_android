@@ -18,7 +18,21 @@ data class Macro(
     /** 트리거 하나만 있던 옛 파일을 읽기 위해 남겨 둔다. 저장할 때는 [triggers]만 채운다 */
     val trigger: Trigger? = null,
     val triggers: List<Trigger> = emptyList(),
-    val actions: List<Action> = emptyList()
+    val actions: List<Action> = emptyList(),
+    /** 목록에서 묶어 두는 이름. 비어 있으면 어느 묶음에도 속하지 않는다 */
+    val folder: String = ""
+)
+
+/**
+ * 이 매크로를 그대로 한 벌 더 만든다.
+ *
+ * 비슷한 매크로를 여러 개 두는 일이 잦다 — 앱만 다르고 나머지는 같은 알림 지우기 같은 것.
+ * 복제본은 꺼 둔 채로 나온다. 똑같은 트리거가 둘이 한꺼번에 도는 일을 막으려는 것이다.
+ */
+fun Macro.duplicate(newId: Long): Macro = copy(
+    id = newId,
+    name = "$name 복사본",
+    enabled = false
 )
 
 /** 옛 형식과 새 형식을 한 줄로 합친다 */

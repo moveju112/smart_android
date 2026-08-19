@@ -37,6 +37,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
@@ -46,6 +47,8 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.FileUpload
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
@@ -74,6 +77,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.Saver
@@ -214,6 +218,9 @@ private fun MacroListScreen(
     var showNewMacro by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf<Macro?>(null) }
     var deleting by remember { mutableStateOf<Macro?>(null) }
+    var moving by remember { mutableStateOf<Macro?>(null) }
+    // 접어 둔 폴더는 앱을 껐다 켜도 접힌 채로 있어야 한다
+    val collapsed = remember { mutableStateListOf<String>().apply { addAll(FolderState.collapsed(context)) } }
     val snackbar = remember { SnackbarHostState() }
 
     // 백업 파일 읽기 — 이 앱의 .json과 예전 .mdr을 모두 받아서 종류를 가리지 않고 연다
@@ -282,6 +289,18 @@ private fun MacroListScreen(
                 renaming = null
             },
             onClose = { renaming = null }
+        )
+    }
+
+    moving?.let { target ->
+        FolderPickDialog(
+            current = target.folder,
+            existing = macros.map { it.folder }.filter { it.isNotBlank() }.distinct().sorted(),
+            onPick = { folder ->
+                MacroStore.upsert(context, target.copy(folder = folder))
+                moving = null
+            },
+            onClose = { moving = null }
         )
     }
 
@@ -379,30 +398,55 @@ private fun MacroListScreen(
                 }
             }
 
-            // 꺼둔 매크로는 아래로 내린다. 지금 도는 것부터 눈에 들어와야 한다
-            items(macros.sortedByDescending { it.enabled }, key = { it.id }) { macro ->
-                MacroCard(
-                    macro = macro,
-                    running = macro.id in running,
-                    engineReady = listenerEnabled,
-                    onToggle = { MacroStore.upsert(context, macro.copy(enabled = it)) },
-                    onRunNow = {
-                        val service = MacroService.instance
-                        if (service == null) {
-                            scope.launch { snackbar.showMessage("엔진이 꺼져 있습니다. 알림 접근 권한을 켜세요") }
-                        } else {
-                            scope.launch {
-                                // 강제 실행은 대기를 건너뛰므로 곧 끝난다. 끝나면 결과를 그 자리에서 보여준다
-                                service.runNow(macro)?.join()
-                                val last = RunLog.lines.value.firstOrNull()?.substringAfter("  ")
-                                snackbar.showMessage(last ?: "${macro.name} · 실행했습니다")
-                            }
+            // 폴더에 넣지 않은 것이 먼저, 그 아래 폴더가 이름순으로 온다
+            val byFolder = macros.groupBy { it.folder }
+            val loose = byFolder[""].orEmpty()
+            val folders = byFolder.filterKeys { it.isNotBlank() }.toSortedMap()
+
+            fun handlers() = MacroActions(
+                running = running,
+                engineReady = listenerEnabled,
+                onToggle = { macro, on -> MacroStore.upsert(context, macro.copy(enabled = on)) },
+                onRunNow = { macro ->
+                    val service = MacroService.instance
+                    if (service == null) {
+                        scope.launch { snackbar.showMessage("엔진이 꺼져 있습니다. 알림 접근 권한을 켜세요") }
+                    } else {
+                        scope.launch {
+                            // 강제 실행은 대기를 건너뛰므로 곧 끝난다. 끝나면 결과를 그 자리에서 보여준다
+                            service.runNow(macro)?.join()
+                            val last = RunLog.lines.value.firstOrNull()?.substringAfter("  ")
+                            snackbar.showMessage(last ?: "${macro.name} · 실행했습니다")
                         }
-                    },
-                    onClick = { onEdit(macro) },
-                    onRename = { renaming = macro },
-                    onDelete = { deleting = macro }
-                )
+                    }
+                },
+                onEdit = onEdit,
+                onRename = { renaming = it },
+                onDuplicate = { macro ->
+                    val copy = macro.duplicate(System.currentTimeMillis())
+                    MacroStore.upsert(context, copy)
+                    scope.launch { snackbar.showMessage("${copy.name} · 꺼 둔 채로 만들었습니다") }
+                },
+                onMove = { moving = it },
+                onDelete = { deleting = it }
+            )
+
+            macroItems(loose, handlers())
+
+            folders.forEach { (folder, inside) ->
+                val isCollapsed = folder in collapsed
+                item(key = "folder:$folder") {
+                    FolderHeader(
+                        name = folder,
+                        count = inside.size,
+                        collapsed = isCollapsed
+                    ) {
+                        val next = !isCollapsed
+                        if (next) collapsed.add(folder) else collapsed.remove(folder)
+                        FolderState.setCollapsed(context, folder, next)
+                    }
+                }
+                if (!isCollapsed) macroItems(inside, handlers())
             }
 
             if (macros.isEmpty()) {
@@ -410,6 +454,71 @@ private fun MacroListScreen(
             }
         }
         }
+    }
+}
+
+/** 카드 한 장이 부르는 일들. 목록과 폴더가 같은 묶음을 나눠 쓴다 */
+private data class MacroActions(
+    val running: Set<Long>,
+    val engineReady: Boolean,
+    val onToggle: (Macro, Boolean) -> Unit,
+    val onRunNow: (Macro) -> Unit,
+    val onEdit: (Macro) -> Unit,
+    val onRename: (Macro) -> Unit,
+    val onDuplicate: (Macro) -> Unit,
+    val onMove: (Macro) -> Unit,
+    val onDelete: (Macro) -> Unit
+)
+
+/** 매크로 여러 장을 목록에 붙인다. 꺼둔 것은 아래로 내린다 — 지금 도는 것부터 눈에 들어와야 한다 */
+private fun LazyListScope.macroItems(list: List<Macro>, actions: MacroActions) {
+    items(list.sortedByDescending { it.enabled }, key = { it.id }) { macro ->
+        MacroCard(
+            macro = macro,
+            running = macro.id in actions.running,
+            engineReady = actions.engineReady,
+            onToggle = { actions.onToggle(macro, it) },
+            onRunNow = { actions.onRunNow(macro) },
+            onClick = { actions.onEdit(macro) },
+            onRename = { actions.onRename(macro) },
+            onDuplicate = { actions.onDuplicate(macro) },
+            onMove = { actions.onMove(macro) },
+            onDelete = { actions.onDelete(macro) }
+        )
+    }
+}
+
+/**
+ * 폴더 한 줄.
+ *
+ * 매크로가 늘면 목록이 길어져 무엇이 어디 있는지 알기 어렵다. 이름을 눌러 접었다 편다.
+ * 카드가 아니라 줄로 그린다 — 폴더는 내용이 아니라 내용을 담는 자리다.
+ */
+@Composable
+private fun FolderHeader(name: String, count: Int, collapsed: Boolean, onToggle: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .heightIn(min = 48.dp)
+            .clickable(
+                role = Role.Button,
+                onClickLabel = if (collapsed) "펼치기" else "접기",
+                onClick = onToggle
+            )
+            .padding(start = 4.dp, end = 8.dp, top = 10.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            if (collapsed) Icons.Default.KeyboardArrowRight else Icons.Default.KeyboardArrowDown,
+            contentDescription = null,
+            tint = scheme.onSurfaceVariant,
+            modifier = Modifier.size(20.dp)
+        )
+        Spacer(Modifier.width(4.dp))
+        Text(name, style = MaterialTheme.typography.titleSmall, color = scheme.onSurface)
+        Spacer(Modifier.width(8.dp))
+        Text("${count}개", style = MonoSmall, color = scheme.onSurfaceVariant)
     }
 }
 
@@ -513,6 +622,8 @@ private fun MacroCard(
     onRunNow: () -> Unit,
     onClick: () -> Unit,
     onRename: () -> Unit,
+    onDuplicate: () -> Unit,
+    onMove: () -> Unit,
     onDelete: () -> Unit
 ) {
     val dim = !macro.enabled
@@ -609,6 +720,14 @@ private fun MacroCard(
                 text = { Text("수정하기") },
                 onClick = { menuOpen = false; onClick() }
             )
+            DropdownMenuItem(
+                text = { Text("복제하기") },
+                onClick = { menuOpen = false; onDuplicate() }
+            )
+            DropdownMenuItem(
+                text = { Text(if (macro.folder.isBlank()) "폴더에 넣기" else "폴더 옮기기") },
+                onClick = { menuOpen = false; onMove() }
+            )
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             DropdownMenuItem(
                 text = { Text("지우기", color = MaterialTheme.colorScheme.error) },
@@ -616,6 +735,63 @@ private fun MacroCard(
             )
         }
     }
+}
+
+/**
+ * 이 매크로를 어느 폴더에 둘지 고른다.
+ *
+ * 폴더를 따로 관리하는 화면은 두지 않는다. 이름을 적으면 그때 생기고, 마지막 매크로가 빠지면 사라진다.
+ */
+@Composable
+private fun FolderPickDialog(
+    current: String,
+    existing: List<String>,
+    onPick: (String) -> Unit,
+    onClose: () -> Unit
+) {
+    var naming by remember { mutableStateOf(false) }
+
+    if (naming) {
+        TextPrompt(
+            title = "새 폴더 이름",
+            hint = "목록에서 이 이름으로 묶입니다",
+            initial = "",
+            onDone = { if (it.isNotBlank()) onPick(it.trim()) else naming = false },
+            onClose = { naming = false }
+        )
+        return
+    }
+
+    AlertDialog(
+        onDismissRequest = onClose,
+        title = { Text("어느 폴더에 둘까요?") },
+        text = {
+            Column {
+                FolderChoice("폴더에 넣지 않음", current.isBlank()) { onPick("") }
+                existing.forEach { folder ->
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    FolderChoice(folder, folder == current) { onPick(folder) }
+                }
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                FolderChoice("새 폴더 만들기…", false) { naming = true }
+            }
+        },
+        confirmButton = { TextButton(onClick = onClose) { Text("닫기") } }
+    )
+}
+
+@Composable
+private fun FolderChoice(label: String, selected: Boolean, onClick: () -> Unit) {
+    Text(
+        label,
+        style = MaterialTheme.typography.bodyMedium,
+        color = if (selected) MaterialTheme.colorScheme.primary
+        else MaterialTheme.colorScheme.onSurface,
+        modifier = Modifier.fillMaxWidth()
+            .heightIn(min = 48.dp)
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(vertical = 14.dp)
+    )
 }
 
 /** 무엇을 만들지 먼저 고르게 한다. 대부분은 알림 지우기 하나면 끝난다 */

@@ -113,3 +113,24 @@ class ClearRuleTest {
         assertEquals(1, m.actions.size)
     }
 }
+
+/** 복제는 내용을 그대로 두되, 같은 트리거가 둘이 한꺼번에 돌지 않게 꺼 둔 채로 나온다 */
+class DuplicateTest {
+
+    @Test
+    fun `복제본은 내용이 같고 꺼져 있다`() {
+        val origin = Macro(
+            id = 1, name = "토스 지우기", enabled = true, folder = "돈",
+            triggers = listOf(Trigger.Notification("com.toss", "토스", "결제")),
+            actions = listOf(Action.Delay(5), Action.ClearNotification("com.toss", "토스", "결제"))
+        )
+        val copy = origin.duplicate(2)
+
+        assertEquals(2, copy.id)
+        assertEquals("토스 지우기 복사본", copy.name)
+        assertEquals(false, copy.enabled)
+        assertEquals(origin.folder, copy.folder)
+        assertEquals(origin.triggers, copy.triggers)
+        assertEquals(origin.actions, copy.actions)
+    }
+}

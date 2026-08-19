@@ -52,3 +52,24 @@ class BackupTest {
         assertTrue(importBackup(exportBackup(emptyList())).macros.isEmpty())
     }
 }
+
+/** 폴더가 없던 시절의 백업도 그대로 읽힌다 */
+class FolderCompatTest {
+
+    @Test
+    fun `폴더 칸이 없는 옛 백업을 읽으면 폴더에 넣지 않은 것이 된다`() {
+        val old = """[{"id":1,"name":"옛것","triggers":[],"actions":[]}]"""
+        val macros = importBackup(old).macros
+
+        assertEquals(1, macros.size)
+        assertEquals("", macros[0].folder)
+    }
+
+    @Test
+    fun `폴더는 백업에 실려 나가고 다시 들어온다`() {
+        val macros = listOf(Macro(id = 1, name = "짐", folder = "집"))
+        val restored = importBackup(exportBackup(macros)).macros
+
+        assertEquals("집", restored[0].folder)
+    }
+}
