@@ -1,6 +1,10 @@
 package com.wemade.smartnoti
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
+
+/** 화면을 돌릴 때 편집 중인 매크로를 잠깐 접어 두는 데 쓴다 */
+internal val macroJson = Json { ignoreUnknownKeys = true }
 
 /**
  * 매크로 하나 = 트리거 여러 개 + 액션 여러 개.

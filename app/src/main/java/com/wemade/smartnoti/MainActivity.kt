@@ -12,6 +12,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -31,6 +32,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -65,6 +67,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -72,15 +75,23 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import kotlinx.serialization.encodeToString
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -92,6 +103,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
         MacroStore.load(this)
         setContent { SmartNotiTheme { AppRoot(resumeTick) } }
     }
@@ -108,10 +120,31 @@ private sealed interface Screen {
     data object Log : Screen
 }
 
+/**
+ * 화면을 돌리면 액티비티가 다시 만들어진다.
+ * 그때 목록으로 튕기지 않게, 지금 보던 화면을 문자열 한 줄로 접어 두었다 편다.
+ */
+private val ScreenSaver = Saver<Screen, String>(
+    save = {
+        when (it) {
+            Screen.List -> "L"
+            Screen.Log -> "G"
+            is Screen.Edit -> "E" + macroJson.encodeToString(it.macro)
+        }
+    },
+    restore = {
+        when {
+            it == "L" -> Screen.List
+            it == "G" -> Screen.Log
+            else -> runCatching { Screen.Edit(macroJson.decodeFromString<Macro>(it.drop(1))) }.getOrNull()
+        }
+    }
+)
+
 @Composable
 private fun AppRoot(resumeTick: Int) {
     val context = LocalContext.current
-    var screen by remember { mutableStateOf<Screen>(Screen.List) }
+    var screen by rememberSaveable(stateSaver = ScreenSaver) { mutableStateOf<Screen>(Screen.List) }
 
     // 배경에서 받아둔 새 버전이 있으면 화면에 들어온 지금 이어서 설치할 수 있다
     LaunchedEffect(Unit) {
@@ -139,7 +172,6 @@ private fun AppRoot(resumeTick: Int) {
         )
 
         is Screen.Edit -> {
-            BackHandler { screen = Screen.List }
             EditScreen(
                 macro = current.macro,
                 onSave = { MacroStore.upsert(context, it); screen = Screen.List },
@@ -254,7 +286,7 @@ private fun MacroListScreen(
         AlertDialog(
             onDismissRequest = { deleting = null },
             title = { Text("이 매크로를 지울까요?") },
-            text = { Text("\"${target.name}\"이 사라집니다. 되돌릴 수 없습니다.") },
+            text = { Text("\u201C${target.name}\u201D이 사라집니다. 되돌릴 수 없습니다.") },
             confirmButton = {
                 TextButton(onClick = { MacroStore.delete(context, target.id); deleting = null }) {
                     Text("지우기", color = MaterialTheme.colorScheme.error)
@@ -265,11 +297,17 @@ private fun MacroListScreen(
     }
     if (showNewMacro) NewMacroDialog(onPick = { showNewMacro = false; onAdd(it) }) { showNewMacro = false }
 
+    // 목록을 올려도 앱바는 남는다. 대신 스크롤이 시작되면 색이 한 겹 올라와 경계가 생긴다
+    val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
+
     Scaffold(
+        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         containerColor = MaterialTheme.colorScheme.background,
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
+          Column {
             TopAppBar(
+                scrollBehavior = scrollBehavior,
                 title = { Text("스마트 안드로이드", style = MaterialTheme.typography.titleLarge) },
                 actions = {
                     IconButton(onClick = { menuOpen = true }) {
@@ -299,6 +337,16 @@ private fun MacroListScreen(
                     }
                 }
             )
+
+            // 엔진이 살아 있는지는 목록을 어디까지 내렸든 보여야 한다. 그래서 스크롤 밖에 둔다
+            EngineStrip(
+                listenerEnabled = listenerEnabled,
+                macroCount = macros.size,
+                lastLine = recent.firstOrNull(),
+                onOpenSettings = { context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) },
+                onOpenLog = onOpenLog
+            )
+          }
         },
         floatingActionButton = {
             ExtendedFloatingActionButton(
@@ -312,19 +360,9 @@ private fun MacroListScreen(
         Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.TopCenter) {
         LazyColumn(
             modifier = Modifier.widthIn(max = 720.dp).fillMaxSize(),
-            contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 96.dp),
+            contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 96.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            item {
-                EngineStrip(
-                    listenerEnabled = listenerEnabled,
-                    macroCount = macros.size,
-                    lastLine = recent.firstOrNull(),
-                    onOpenSettings = { context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) },
-                    onOpenLog = onOpenLog
-                )
-            }
-
             (updateState as? UpdateState.Downloaded)?.let { ready ->
                 item {
                     UpdateReadyBanner(ready.version) {
@@ -372,7 +410,10 @@ private fun MacroListScreen(
     }
 }
 
-/** 엔진이 살아 있는지, 방금 무슨 일이 있었는지. 이 앱에서 가장 자주 확인하게 되는 줄이다 */
+/**
+ * 엔진이 살아 있는지, 방금 무슨 일이 있었는지. 이 앱에서 가장 자주 확인하게 되는 줄이다.
+ * 앱바 바로 아래 붙박이로 서 있으므로 카드가 아니라 한 겹의 줄로 그린다.
+ */
 @Composable
 private fun EngineStrip(
     listenerEnabled: Boolean,
@@ -382,62 +423,62 @@ private fun EngineStrip(
     onOpenLog: () -> Unit
 ) {
     val connected by EngineState.connected.collectAsState()
+    val scheme = MaterialTheme.colorScheme
     val live = listenerEnabled && connected
 
-    Card(
-        onClick = if (listenerEnabled) onOpenLog else onOpenSettings,
-        colors = CardDefaults.cardColors(
-            containerColor = if (listenerEnabled) MaterialTheme.colorScheme.surface
-            else MaterialTheme.colorScheme.errorContainer
-        )
+    // 권한이 없으면 이 앱은 아무것도 못 한다. 그때만 빨갛게 눈에 걸리게 둔다
+    val background = if (listenerEnabled) scheme.surface else scheme.errorContainer
+    val ink = if (listenerEnabled) scheme.onSurface else scheme.onErrorContainer
+
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .background(background)
+            .clickable(
+                role = Role.Button,
+                onClickLabel = if (listenerEnabled) "실행 기록 열기" else "설정 열기"
+            ) { if (listenerEnabled) onOpenLog() else onOpenSettings() }
+            .padding(horizontal = 16.dp, vertical = 10.dp)
     ) {
-        Column(Modifier.padding(14.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                StatusDot(live)
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    when {
-                        !listenerEnabled -> "알림 접근 권한이 꺼져 있습니다"
-                        !connected -> "엔진 연결 중"
-                        else -> "켜져 있음"
-                    },
-                    style = MaterialTheme.typography.titleMedium,
-                    color = if (listenerEnabled) MaterialTheme.colorScheme.onSurface
-                    else MaterialTheme.colorScheme.onErrorContainer
-                )
-                Spacer(Modifier.weight(1f))
-                Text(
-                    "매크로 ${macroCount}개",
-                    style = MonoLabel,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-
-            Spacer(Modifier.padding(top = 6.dp))
-
-            if (!listenerEnabled) {
-                Text(
-                    "권한을 켜야 알림을 읽고 지울 수 있습니다. 눌러서 설정으로 갑니다.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onErrorContainer
-                )
-            } else {
-                Text(
-                    lastLine ?: "아직 실행된 매크로가 없습니다",
-                    style = MonoSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            StatusDot(live)
+            Spacer(Modifier.width(8.dp))
+            Text(
+                when {
+                    !listenerEnabled -> "알림 접근 권한이 꺼져 있습니다"
+                    !connected -> "엔진 연결 중"
+                    else -> "켜져 있음"
+                },
+                style = MaterialTheme.typography.titleMedium,
+                color = ink
+            )
+            Spacer(Modifier.weight(1f))
+            Text(
+                "매크로 ${macroCount}개",
+                style = MonoLabel,
+                color = if (listenerEnabled) scheme.onSurfaceVariant else ink
+            )
         }
+
+        Spacer(Modifier.padding(top = 3.dp))
+
+        Text(
+            if (!listenerEnabled) "권한을 켜야 알림을 읽고 지울 수 있습니다. 눌러서 설정으로 갑니다."
+            else lastLine ?: "아직 실행된 매크로가 없습니다",
+            style = if (listenerEnabled) MonoSmall else MaterialTheme.typography.bodySmall,
+            color = if (listenerEnabled) scheme.onSurfaceVariant else ink,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
+    HorizontalDivider(color = scheme.outlineVariant)
 }
 
-/** 살아 있으면 천천히 숨쉬는 점 */
+/** 살아 있으면 천천히 숨쉬는 점. 상태를 말하는 것은 옆의 글이고, 이 점은 그 글을 거드는 그림이다 */
 @Composable
 private fun StatusDot(live: Boolean) {
-    val alpha by if (live) {
+    val breathing = live && !reduceMotion()
+    val alpha by if (breathing) {
         rememberInfiniteTransition(label = "dot").animateFloat(
             initialValue = 1f,
             targetValue = 0.35f,
@@ -450,7 +491,8 @@ private fun StatusDot(live: Boolean) {
     Box(
         Modifier
             .size(9.dp)
-            .alpha(if (live) alpha else 1f)
+            .clearAndSetSemantics { }
+            .alpha(if (breathing) alpha else 1f)
             .background(
                 if (live) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
                 CircleShape
@@ -479,6 +521,8 @@ private fun MacroCard(
             colors = CardDefaults.cardColors(containerColor = scheme.surface),
             // 길게 누르면 이 매크로를 두고 할 수 있는 일이 한자리에 나온다
             modifier = Modifier.combinedClickable(
+                onClickLabel = "수정하기",
+                onLongClickLabel = "이름 바꾸기·지우기 메뉴 열기",
                 onClick = onClick,
                 onLongClick = { menuOpen = true }
             )
@@ -609,7 +653,8 @@ private fun NewMacroDialog(onPick: (Macro) -> Unit, onClose: () -> Unit) {
                     if (i > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                     Column(
                         Modifier.fillMaxWidth()
-                            .clickable { onPick(macro) }
+                            .heightIn(min = 48.dp)
+                            .clickable(role = Role.Button) { onPick(macro) }
                             .padding(vertical = 10.dp)
                     ) {
                         Text(label, style = MaterialTheme.typography.titleMedium)
@@ -814,10 +859,13 @@ private fun ImportConfirmDialog(
 private fun RunLogScreen(onBack: () -> Unit) {
     val lines by RunLog.lines.collectAsState()
     val peek by Diagnostics.peekNotifications.collectAsState()
+    val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     Scaffold(
+        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
+                scrollBehavior = scrollBehavior,
                 title = { Text("실행 기록") },
                 navigationIcon = {
                     IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "뒤로") }

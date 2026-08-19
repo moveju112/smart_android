@@ -23,6 +23,8 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
 
@@ -52,7 +54,9 @@ fun RailRow(
     running: Boolean = false,
     content: @Composable () -> Unit
 ) {
-    val phase by if (running) {
+    // 애니메이션을 꺼 둔 사람에게는 흐르지 않는다. 점선은 그대로 보인다
+    val flowing = running && !reduceMotion()
+    val phase by if (flowing) {
         rememberInfiniteTransition(label = "rail").animateFloat(
             initialValue = 0f,
             targetValue = 24f,
@@ -67,6 +71,14 @@ fun RailRow(
         Box(
             Modifier
                 .width(20.dp)
+                .semantics {
+                    contentDescription = when (step) {
+                        Step.Trigger -> "트리거"
+                        Step.Wait -> "대기"
+                        Step.Act -> "실행"
+                        Step.Gate -> "조건"
+                    }
+                }
                 .fillMaxHeight()
                 .heightIn(min = 22.dp)
                 .drawBehind {

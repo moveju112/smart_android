@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 어두운 화면에서는 시스템 창도 어둡게. 이게 없으면 앱이 뜨는 순간 흰 화면이 한 번 번쩍인다 -->
+    <style name="Theme.SmartNoti" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/app_background</item>
+    </style>
+</resources>

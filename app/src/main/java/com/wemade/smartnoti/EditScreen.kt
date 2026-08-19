@@ -4,6 +4,7 @@ import android.Manifest
 import android.bluetooth.BluetoothManager
 import android.content.Context
 import android.content.pm.PackageManager
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -48,6 +49,7 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -58,17 +60,39 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.listSaver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.semantics.Role
 
 import androidx.compose.ui.text.font.FontFamily
+import kotlinx.serialization.encodeToString
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+
+/** 편집 중인 매크로를 문자열 한 줄로 접었다 편다 */
+private val MacroSaver = Saver<Macro, String>(
+    save = { macroJson.encodeToString(it) },
+    restore = { runCatching { macroJson.decodeFromString<Macro>(it) }.getOrNull() }
+)
+
+/** 알림 지우기 규칙은 값 네 개가 전부다 */
+private val ClearRuleSaver = listSaver<ClearRule, Any>(
+    save = { listOf(it.packageName, it.appLabel, it.text, it.seconds) },
+    restore = { ClearRule(it[0] as String, it[1] as String, it[2] as String, it[3] as Int) }
+)
 
 /**
  * 매크로 편집. 두 갈래로 나뉜다.
@@ -79,19 +103,40 @@ import androidx.compose.ui.unit.dp
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EditScreen(macro: Macro, onSave: (Macro) -> Unit, onDelete: () -> Unit, onCancel: () -> Unit) {
-    var draft by remember { mutableStateOf(macro) }
-    var rule by remember { mutableStateOf(macro.asClearRule() ?: ClearRule()) }
-    var simple by remember { mutableStateOf(macro.asClearRule() != null) }
-    var confirmDelete by remember { mutableStateOf(false) }
+    var draft by rememberSaveable(stateSaver = MacroSaver) { mutableStateOf(macro) }
+    var rule by rememberSaveable(stateSaver = ClearRuleSaver) { mutableStateOf(macro.asClearRule() ?: ClearRule()) }
+    var simple by rememberSaveable { mutableStateOf(macro.asClearRule() != null) }
+    var confirmDelete by rememberSaveable { mutableStateOf(false) }
+    var confirmLeave by rememberSaveable { mutableStateOf(false) }
 
     // 지금 화면의 내용을 저장할 매크로 한 개로 모은다
     fun collect(): Macro = if (simple) draft.withClearRule(rule) else draft
+
+    // 고친 것이 있는데 그냥 나가면 그대로 사라진다. 나가기 전에 한 번 묻는다
+    fun leave() {
+        if (collect() == macro) onCancel() else confirmLeave = true
+    }
+    BackHandler { leave() }
+
+    if (confirmLeave) {
+        AlertDialog(
+            onDismissRequest = { confirmLeave = false },
+            title = { Text("고친 것을 버릴까요?") },
+            text = { Text("저장하지 않은 내용이 사라집니다.") },
+            confirmButton = {
+                TextButton(onClick = { confirmLeave = false; onCancel() }) {
+                    Text("버리고 나가기", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = { TextButton(onClick = { confirmLeave = false }) { Text("계속 고치기") } }
+        )
+    }
 
     if (confirmDelete) {
         AlertDialog(
             onDismissRequest = { confirmDelete = false },
             title = { Text("이 매크로를 지울까요?") },
-            text = { Text("\"${draft.name}\"이 사라집니다. 되돌릴 수 없습니다.") },
+            text = { Text("\u201C${draft.name}\u201D이 사라집니다. 되돌릴 수 없습니다.") },
             confirmButton = {
                 TextButton(onClick = { confirmDelete = false; onDelete() }) {
                     Text("지우기", color = MaterialTheme.colorScheme.error)
@@ -121,13 +166,17 @@ fun EditScreen(macro: Macro, onSave: (Macro) -> Unit, onDelete: () -> Unit, onCa
         )
     }
 
+    val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
+
     Scaffold(
+        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
+                scrollBehavior = scrollBehavior,
                 title = { Text(if (simple) "알림 지우기" else "직접 짜기") },
                 navigationIcon = {
-                    IconButton(onClick = onCancel) {
+                    IconButton(onClick = { leave() }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "뒤로")
                     }
                 },
@@ -294,7 +343,7 @@ private fun ClearSentence(rule: ClearRule, onChange: (ClearRule) -> Unit) {
             }
             SentenceRow {
                 Slot(
-                    text = if (rule.text.isBlank()) "모든 알림" else "\"${rule.text}\"",
+                    text = if (rule.text.isBlank()) "모든 알림" else "\u201C${rule.text}\u201D",
                     filled = rule.text.isNotBlank()
                 ) { picking = "text" }
                 Tail(if (rule.text.isBlank()) "을" else "포함한 알림을")
@@ -346,11 +395,12 @@ private fun Slot(text: String, filled: Boolean, onClick: () -> Unit) {
         style = SentenceStyle,
         color = if (filled) scheme.onPrimaryContainer else scheme.onSurfaceVariant,
         modifier = Modifier
+            .minimumInteractiveComponentSize()
             .background(
                 if (filled) scheme.primaryContainer else scheme.surfaceVariant,
                 RoundedCornerShape(8.dp)
             )
-            .clickable(onClick = onClick)
+            .clickable(role = Role.Button, onClick = onClick)
             .padding(horizontal = 9.dp, vertical = 5.dp)
     )
 }
@@ -542,7 +592,8 @@ private fun AddStepButton(onAdd: (Action) -> Unit) {
                         if (i > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                         Column(
                             Modifier.fillMaxWidth()
-                                .clickable { onAdd(action); open = false }
+                                .heightIn(min = 48.dp)
+                                .clickable(role = Role.Button) { onAdd(action); open = false }
                                 .padding(vertical = 10.dp)
                         ) {
                             Text(label, style = MaterialTheme.typography.titleMedium)
@@ -662,7 +713,9 @@ private fun FoldableSection(
             modifier = Modifier.padding(bottom = 6.dp)
         )
         Row(
-            Modifier.fillMaxWidth().clickable { onOpen(!open) },
+            Modifier.fillMaxWidth()
+                .heightIn(min = 48.dp)
+                .clickable(role = Role.Button) { onOpen(!open) },
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column {
@@ -960,6 +1013,13 @@ private fun ConditionEditor(condition: Condition, onChange: (Condition) -> Unit)
                     onChange(condition.copy(atMost = it))
                 }
             }
+            if (condition.atLeast > condition.atMost) {
+                Text(
+                    "최소가 최대보다 큽니다. 이대로면 이 조건은 절대 맞지 않아 매크로가 늘 여기서 멈춥니다.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
                 ChoiceChip("충전 상관없음", condition.charging == null, Modifier.weight(1f)) {
                     onChange(condition.copy(charging = null))
@@ -980,19 +1040,29 @@ private fun ConditionEditor(condition: Condition, onChange: (Condition) -> Unit)
 /** 시:분을 받는 칸 */
 @Composable
 private fun ClockField(label: String, minuteOfDay: Int, modifier: Modifier = Modifier, onChange: (Int) -> Unit) {
+    // 치는 대로 화면에 남긴다. 네 자리가 되기 전에는 값이 정해지지 않았을 뿐, 글자는 지워지지 않는다
+    var typed by remember(minuteOfDay) { mutableStateOf(clockText(minuteOfDay)) }
+    val digits = typed.filter(Char::isDigit)
+    val ready = digits.length == 4
+
     OutlinedTextField(
-        value = clockText(minuteOfDay),
+        value = typed,
         onValueChange = { raw ->
+            val next = raw.filter(Char::isDigit).take(4)
+            typed = next
             // 숫자만 남겨 HHMM으로 읽는다. 콜론을 손으로 넣지 않아도 된다
-            val digits = raw.filter(Char::isDigit).take(4)
-            if (digits.length == 4) {
-                val h = digits.take(2).toInt().coerceAtMost(23)
-                val m = digits.drop(2).toInt().coerceAtMost(59)
+            if (next.length == 4) {
+                val h = next.take(2).toInt().coerceAtMost(23)
+                val m = next.drop(2).toInt().coerceAtMost(59)
                 onChange(h * 60 + m)
+                typed = clockText(h * 60 + m)
             }
         },
         label = { Text(label) },
-        supportingText = { Text("시분 네 자리") },
+        isError = !ready,
+        supportingText = {
+            Text(if (ready) "시분 네 자리" else "네 자리를 다 채워야 정해집니다")
+        },
         singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
         modifier = modifier
@@ -1170,7 +1240,8 @@ private fun LiveNotificationDialog(
                     items(items) { peek ->
                         Column(
                             Modifier.fillMaxWidth()
-                                .clickable { onPick(peek.packageName, peek.appLabel, peek.title, peek.text, peek.clearable) }
+                                .heightIn(min = 48.dp)
+                                .clickable(role = Role.Button) { onPick(peek.packageName, peek.appLabel, peek.title, peek.text, peek.clearable) }
                                 .padding(vertical = 8.dp)
                         ) {
                             Text(peek.title.ifBlank { "(제목 없음)" }, style = MaterialTheme.typography.bodyMedium)
@@ -1199,7 +1270,7 @@ private fun PickerField(label: String, value: String, detail: String?, onClick: 
     Column(
         Modifier.fillMaxWidth()
             .border(1.dp, scheme.outline, RoundedCornerShape(8.dp))
-            .clickable(onClick = onClick)
+            .clickable(role = Role.Button, onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 10.dp)
     ) {
         Text(label, style = MonoSmall, color = scheme.onSurfaceVariant)
@@ -1227,7 +1298,9 @@ private fun AppPicker(packageName: String, appLabel: String, onPick: (String, St
 @Composable
 private fun AppChooserDialog(onPick: (String, String) -> Unit, onClose: () -> Unit) {
     val context = LocalContextCompat()
-    val apps = remember { installedApps(context) }
+    val apps by produceState(emptyList<Pair<String, String>>(), context) {
+        value = withContext(Dispatchers.IO) { installedApps(context) }
+    }
     var query by remember { mutableStateOf("") }
 
     AlertDialog(
@@ -1245,11 +1318,27 @@ private fun AppChooserDialog(onPick: (String, String) -> Unit, onClose: () -> Un
                 val shown = apps.filter {
                     query.isBlank() || it.first.contains(query, true) || it.second.contains(query, true)
                 }
+                if (apps.isEmpty()) {
+                    Text(
+                        "설치된 앱을 읽는 중…",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(vertical = 12.dp)
+                    )
+                } else if (shown.isEmpty()) {
+                    Text(
+                        "찾는 앱이 없습니다. 다른 말로 찾아 보세요.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(vertical = 12.dp)
+                    )
+                }
                 LazyColumn(Modifier.heightIn(max = 380.dp)) {
                     items(shown) { (label, pkg) ->
                         Column(
                             Modifier.fillMaxWidth()
-                                .clickable { onPick(pkg, label) }
+                                .heightIn(min = 48.dp)
+                                .clickable(role = Role.Button) { onPick(pkg, label) }
                                 .padding(vertical = 8.dp)
                         ) {
                             Text(label, style = MaterialTheme.typography.bodyMedium)
@@ -1289,7 +1378,8 @@ private fun DevicePicker(address: String, deviceName: String, onPick: (String, S
                         items(devices) { (name, addr) ->
                             Column(
                                 Modifier.fillMaxWidth()
-                                    .clickable { onPick(addr, name); open = false }
+                                    .heightIn(min = 48.dp)
+                                    .clickable(role = Role.Button) { onPick(addr, name); open = false }
                                     .padding(vertical = 8.dp)
                             ) {
                                 Text(name, style = MaterialTheme.typography.bodyMedium)

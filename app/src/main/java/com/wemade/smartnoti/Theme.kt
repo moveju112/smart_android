@@ -6,6 +6,8 @@ import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -119,4 +121,21 @@ fun SmartNotiTheme(content: @Composable () -> Unit) {
         typography = AppTypography,
         content = content
     )
+}
+
+/**
+ * 기기에서 애니메이션을 꺼 둔 사람인지 본다.
+ * 개발자 옵션의 애니메이션 배율과 접근성의 "애니메이션 제거"가 같은 값을 0으로 만든다.
+ * 이 앱은 숨쉬는 점과 흐르는 레일이 계속 움직이므로, 꺼 둔 사람에게는 멈춰 보여야 한다.
+ */
+@Composable
+fun reduceMotion(): Boolean {
+    val context = LocalContext.current
+    return remember(context) {
+        android.provider.Settings.Global.getFloat(
+            context.contentResolver,
+            android.provider.Settings.Global.ANIMATOR_DURATION_SCALE,
+            1f
+        ) == 0f
+    }
 }
