@@ -186,6 +186,7 @@ private fun AppRoot(resumeTick: Int) {
             context.checkSelfPermission(WIREGUARD_PERMISSION) != PackageManager.PERMISSION_GRANTED
         ) {
             runCatching { askWireGuard.launch(WIREGUARD_PERMISSION) }
+                .onFailure { RunLog.add("WireGuard 권한을 묻지 못했습니다 · 그 앱이 깔려 있는지 확인하세요") }
         }
     }
 

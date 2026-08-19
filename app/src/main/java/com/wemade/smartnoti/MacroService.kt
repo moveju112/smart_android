@@ -297,16 +297,25 @@ class MacroService : NotificationListenerService() {
                     intent.setPackage(action.packageName)
                 }
                 if (action.extraName.isNotBlank()) intent.putExtra(action.extraName, action.extraValue)
-                runCatching { sendBroadcast(intent) }
-                    .onSuccess {
-                        RunLog.add("브로드캐스트 전송 · ${action.action} → ${action.packageName}")
-                        // 보내는 것까지는 늘 되고, 받는 쪽이 권한을 걸어 두면 거기서 조용히 버려진다
-                        if (action.packageName == WIREGUARD_PACKAGE &&
-                            checkSelfPermission(WIREGUARD_PERMISSION) != PackageManager.PERMISSION_GRANTED
-                        ) {
-                            RunLog.add("WireGuard 원격 제어 권한이 없어 전달되지 않았을 수 있음 · 앱을 열어 허용하세요")
-                        }
+
+                // 무엇을 보내는지 그대로 남긴다. 터널 이름 한 글자가 달라도 아무 일이 일어나지 않는다
+                val what = buildString {
+                    append(action.action)
+                    if (action.extraName.isNotBlank()) {
+                        append(" · ").append(action.extraName).append("=").append(action.extraValue)
                     }
+                }
+
+                // 보내기 전에 막힐 자리를 먼저 본다. 보내고 나면 실패해도 알 길이 없다
+                val blocked = broadcastBlockedReason(action, intent)
+                if (blocked != null) {
+                    RunLog.add("브로드캐스트 보내지 못함 · $blocked")
+                    Log.w(TAG, "브로드캐스트 막힘: $blocked")
+                    return true
+                }
+
+                runCatching { sendBroadcast(intent) }
+                    .onSuccess { RunLog.add("브로드캐스트 전송 · $what → ${action.packageName}") }
                     .onFailure {
                         Log.w(TAG, "브로드캐스트 실패: ${it.message}")
                         RunLog.add("브로드캐스트 실패 · ${it.message}")
@@ -314,6 +323,30 @@ class MacroService : NotificationListenerService() {
             }
         }
         return true
+    }
+
+    /**
+     * 보내도 아무 일이 없을 자리를 미리 짚는다.
+     *
+     * 브로드캐스트는 받는 쪽 사정으로 조용히 버려진다 — 리시버 이름이 틀렸거나, 그 쪽이 걸어 둔
+     * 권한이 없거나. 어느 쪽이든 예외가 나지 않아서 "보냈다"는 기록만 남고 끝난다.
+     */
+    private fun broadcastBlockedReason(action: Action.Broadcast, intent: Intent): String? {
+        // 1. 받을 리시버가 실제로 있는지
+        val targets = runCatching { packageManager.queryBroadcastReceivers(intent, 0) }.getOrDefault(emptyList())
+        if (targets.isEmpty()) {
+            return if (action.className.isNotBlank())
+                "받을 곳이 없습니다 · ${action.packageName}/${action.className} 이 맞는지 확인하세요"
+            else
+                "받을 곳이 없습니다 · ${action.packageName} 이 깔려 있는지 확인하세요"
+        }
+
+        // 2. 그 리시버가 요구하는 권한을 우리가 받았는지
+        val needed = targets.firstNotNullOfOrNull { it.activityInfo?.permission }
+        if (needed != null && checkSelfPermission(needed) != PackageManager.PERMISSION_GRANTED) {
+            return "권한이 없습니다 · $needed · 앱을 열면 물어봅니다. 이미 거부했다면 안드로이드 설정 → 앱 → 권한에서 켜세요"
+        }
+        return null
     }
 
     companion object {
