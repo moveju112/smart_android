@@ -451,7 +451,10 @@ private fun NumberPrompt(title: String, initial: Int, onDone: (Int) -> Unit, onC
             OutlinedTextField(
                 value = value,
                 onValueChange = { value = it.filter(Char::isDigit).take(6) },
-                supportingText = { Text(humanSeconds(seconds)) },
+                // 60초가 넘어야 "5분"처럼 바꿔 읽을 값이 생긴다
+                supportingText = if (seconds >= 60) {
+                    { Text(humanSeconds(seconds)) }
+                } else null,
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 modifier = Modifier.fillMaxWidth()
@@ -1078,6 +1081,14 @@ private fun PlaceEditor(place: Condition.Place, onChange: (Condition.Place) -> U
         modifier = Modifier.fillMaxWidth()
     ) { Text("지금 있는 자리로 정하기") }
 
+    Text(
+        if (place.latitude == 0.0 && place.longitude == 0.0) "아직 자리를 정하지 않았습니다"
+        else "%.5f, %.5f".format(place.latitude, place.longitude),
+        style = MonoSmall,
+        color = if (place.latitude == 0.0) MaterialTheme.colorScheme.error
+        else MaterialTheme.colorScheme.onSurfaceVariant
+    )
+
     OutlinedTextField(
         value = place.label,
         onValueChange = { onChange(place.copy(label = it)) },
@@ -1086,17 +1097,6 @@ private fun PlaceEditor(place: Condition.Place, onChange: (Condition.Place) -> U
         singleLine = true,
         modifier = Modifier.fillMaxWidth()
     )
-
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(
-            if (place.latitude == 0.0 && place.longitude == 0.0) "아직 자리를 정하지 않았습니다"
-            else "%.5f, %.5f".format(place.latitude, place.longitude),
-            style = MonoSmall,
-            color = if (place.latitude == 0.0) MaterialTheme.colorScheme.error
-            else MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.weight(1f)
-        )
-    }
 
     OutlinedTextField(
         value = place.radiusMeters.toString(),
@@ -1114,7 +1114,7 @@ private fun PlaceEditor(place: Condition.Place, onChange: (Condition.Place) -> U
 
     // 매크로는 배경에서 돈다. 위치는 "앱 사용 중에만" 허용이면 그때 읽지 못한다
     Text(
-        "설정 → 앱 → 위치를 \"항상 허용\"으로 두어야 배경에서도 이 조건을 볼 수 있습니다.",
+        "설정 → 앱 → 위치를 \u201C항상 허용\u201D으로 두어야 배경에서도 이 조건을 볼 수 있습니다.",
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant
     )
@@ -1338,7 +1338,12 @@ private fun DevicePicker(address: String, deviceName: String, onPick: (String, S
             title = { Text("짝지어 둔 기기") },
             text = {
                 if (devices.isEmpty()) {
-                    Text("짝지어 둔 기기가 없거나 블루투스 권한이 없습니다.")
+                    Text(
+                        if (hasBluetoothPermission(context))
+                            "짝지어 둔 기기가 없습니다. 안드로이드 설정에서 기기와 먼저 짝을 지어 주세요."
+                        else
+                            "블루투스 권한이 없어 기기 목록을 읽지 못합니다. 앱 정보 → 권한에서 허용해 주세요."
+                    )
                 } else {
                     LazyColumn(Modifier.heightIn(max = 380.dp)) {
                         itemsIndexed(devices) { index, (name, addr) ->
@@ -1378,11 +1383,14 @@ private fun installedApps(context: Context): List<Pair<String, String>> {
         .sortedBy { it.first.lowercase() }
 }
 
+/** 블루투스 기기 목록을 읽어도 되는지. 안드로이드 12부터 따로 승인을 받는다 */
+private fun hasBluetoothPermission(context: Context): Boolean =
+    android.os.Build.VERSION.SDK_INT < 31 ||
+        context.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
+
 /** 짝지어 둔 기기를 (이름, MAC)으로 뽑는다. 권한이 없으면 빈 목록 */
 private fun bondedDevices(context: Context): List<Pair<String, String>> {
-    if (android.os.Build.VERSION.SDK_INT >= 31 &&
-        context.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED
-    ) return emptyList()
+    if (!hasBluetoothPermission(context)) return emptyList()
     val adapter = context.getSystemService(BluetoothManager::class.java)?.adapter ?: return emptyList()
     return runCatching {
         adapter.bondedDevices.map { (it.name ?: it.address) to it.address }.sortedBy { it.first.lowercase() }

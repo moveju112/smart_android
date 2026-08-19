@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- 위젯 바탕. 홈 배경이 무엇이든 글자가 읽히도록 어두운 판을 깐다 -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
-    <solid android:color="#E61A222C" />
+    <solid android:color="@color/widget_panel" />
     <corners android:radius="20dp" />
 </shape>

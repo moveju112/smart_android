@@ -3,4 +3,9 @@
     <color name="ic_launcher_background">#2E4B6B</color>
     <!-- Theme.kt의 PaperLight와 같은 값. 앱이 그리기 전 창 배경이 여기서 나온다 -->
     <color name="app_background">#F5F7F9</color>
+
+    <!-- 홈 화면 위젯. 배경이 무엇이든 읽히도록 밝고 어두움과 무관하게 어두운 판을 쓴다 -->
+    <color name="widget_panel">#E61A222C</color>
+    <color name="widget_ink">#E6EBF0</color>
+    <color name="widget_mute">#8A97A6</color>
 </resources>

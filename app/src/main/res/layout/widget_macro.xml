@@ -17,7 +17,7 @@
         android:ellipsize="end"
         android:maxLines="2"
         android:textAlignment="center"
-        android:textColor="#E6EBF0"
+        android:textColor="@color/widget_ink"
         android:textSize="15sp"
         android:textStyle="bold" />
 
@@ -30,6 +30,6 @@
         android:maxLines="1"
         android:paddingTop="3dp"
         android:textAlignment="center"
-        android:textColor="#8A97A6"
+        android:textColor="@color/widget_mute"
         android:textSize="11sp" />
 </LinearLayout>
