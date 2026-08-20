@@ -36,6 +36,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.ArrowDownward
@@ -82,6 +84,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.semantics.Role
 
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -159,6 +162,14 @@ fun EditScreen(macro: Macro, onSave: (Macro) -> Unit, onDelete: () -> Unit, onCa
     // 저장할 수 없는 이유가 있으면 그것부터 보여 준다. 경고만 하고 저장을 허락하면
     // "영원히 거기서 멈추는 매크로"가 만들어진다
     var problem by remember { mutableStateOf<String?>(null) }
+
+    /**
+     * 지금 펼쳐 둔 조각. `"t2"`는 세 번째 트리거, `"a0"`은 첫 단계, null은 다 접힌 상태다.
+     *
+     * 전에는 모든 조각이 펼쳐진 채였다. 단계가 여섯이면 화면이 폼 덩어리가 되고,
+     * 정작 고치려던 한 줄을 찾는 데 스크롤이 필요했다. 한 번에 하나만 연다.
+     */
+    var open by rememberSaveable { mutableStateOf<String?>(null) }
 
     fun save() {
         val blocked = collect().saveProblem()
@@ -295,7 +306,7 @@ fun EditScreen(macro: Macro, onSave: (Macro) -> Unit, onDelete: () -> Unit, onCa
                 if (simple) {
                     clearRuleSections(rule) { rule = it }
                 } else {
-                    advancedSections(draft) { draft = it }
+                    advancedSections(draft, open, { open = it }) { draft = it }
                 }
             }
         }
@@ -570,6 +581,8 @@ private fun fittingUnit(seconds: Int): TimeUnit = when {
 
 private fun LazyListScope.advancedSections(
     draft: Macro,
+    open: String?,
+    onOpen: (String?) -> Unit,
     onChange: (Macro) -> Unit
 ) {
     item {
@@ -579,38 +592,39 @@ private fun LazyListScope.advancedSections(
             if (triggers.size > 1) "이 중 하나라도 생기면 매크로가 돕니다" else "이 일이 생기면 매크로가 돕니다"
         ) {
             triggers.forEachIndexed { index, trigger ->
+                val key = "t$index"
                 if (index > 0) {
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                     Text(
                         "또는",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.primary
                     )
                 }
-                if (triggers.size > 1) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            "트리거 ${index + 1}",
-                            style = MonoSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.weight(1f)
-                        )
-                        IconButton(onClick = {
+                FoldedPiece(
+                    mark = Step.Trigger,
+                    accent = MaterialTheme.colorScheme.primary,
+                    order = if (triggers.size > 1) "${index + 1}" else null,
+                    summary = trigger.summary(),
+                    opened = open == key,
+                    onToggle = { onOpen(if (open == key) null else key) },
+                    onRemove = if (triggers.size > 1) {
+                        {
                             onChange(draft.withTriggers(triggers.filterIndexed { i, _ -> i != index }))
-                        }) {
-                            Icon(
-                                Icons.Default.Close, "트리거 빼기",
-                                Modifier.size(18.dp), tint = MaterialTheme.colorScheme.error
-                            )
+                            onOpen(null)
                         }
+                    } else null
+                ) {
+                    TriggerEditor(trigger) { changed ->
+                        onChange(draft.withTriggers(triggers.mapIndexed { i, t -> if (i == index) changed else t }))
                     }
-                }
-                TriggerEditor(trigger) { changed ->
-                    onChange(draft.withTriggers(triggers.mapIndexed { i, t -> if (i == index) changed else t }))
                 }
             }
             TextButton(
-                onClick = { onChange(draft.withTriggers(triggers + Trigger.Notification())) },
+                onClick = {
+                    onChange(draft.withTriggers(triggers + Trigger.Notification()))
+                    // 방금 넣은 것은 펼쳐 준다. 넣자마자 채워야 하는 값이라서다
+                    onOpen("t${triggers.size}")
+                },
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Icon(Icons.Default.Add, null, Modifier.size(18.dp))
@@ -623,15 +637,19 @@ private fun LazyListScope.advancedSections(
     item { SectionHeading(2, "무엇을", "위에서 아래로 차례대로 실행합니다") }
 
     items(draft.actions.size, key = { it }) { index ->
+        val key = "a$index"
         ActionCard(
             index = index,
             total = draft.actions.size,
             action = draft.actions[index],
+            opened = open == key,
+            onToggle = { onOpen(if (open == key) null else key) },
             onEdit = { changed ->
                 onChange(draft.copy(actions = draft.actions.mapIndexed { i, a -> if (i == index) changed else a }))
             },
             onRemove = {
                 onChange(draft.copy(actions = draft.actions.filterIndexed { i, _ -> i != index }))
+                onOpen(null)
             },
             onMove = { delta ->
                 val to = index + delta
@@ -639,6 +657,8 @@ private fun LazyListScope.advancedSections(
                     val list = draft.actions.toMutableList()
                     list.add(to, list.removeAt(index))
                     onChange(draft.copy(actions = list))
+                    // 옮긴 것을 계속 따라간다. 손이 그 조각에 머물러 있으니까
+                    onOpen("a$to")
                 }
             }
         )
@@ -653,7 +673,11 @@ private fun LazyListScope.advancedSections(
                 modifier = Modifier.padding(start = 4.dp, bottom = 6.dp)
             )
         }
-        AddStepButton { onChange(draft.copy(actions = draft.actions + it)) }
+        AddStepButton {
+            onChange(draft.copy(actions = draft.actions + it))
+            // 방금 넣은 단계는 펼쳐 준다
+            onOpen("a${draft.actions.size}")
+        }
     }
 }
 
@@ -702,50 +726,129 @@ private fun ActionCard(
     index: Int,
     total: Int,
     action: Action,
+    opened: Boolean,
+    onToggle: () -> Unit,
     onEdit: (Action) -> Unit,
     onRemove: () -> Unit,
     onMove: (Int) -> Unit
 ) {
     val scheme = MaterialTheme.colorScheme
-    val (kind, accent) = when (action.step()) {
-        Step.Wait -> "대기" to scheme.secondary
-        Step.Gate -> "조건" to scheme.primary
-        else -> "실행" to scheme.onSurfaceVariant
+    val accent = when (action.step()) {
+        Step.Wait -> scheme.secondary
+        Step.Gate -> scheme.primary
+        else -> scheme.onSurfaceVariant
     }
 
     Card(colors = CardDefaults.cardColors(containerColor = scheme.surface)) {
-        Column(Modifier.padding(start = 14.dp, end = 4.dp, top = 8.dp, bottom = 12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                StepMark(action.step(), accent)
-                Spacer(Modifier.width(9.dp))
-                Text(
-                    "${index + 1}",
-                    style = MonoSmall,
-                    color = scheme.onSurfaceVariant
+        FoldedPiece(
+            mark = action.step(),
+            accent = accent,
+            order = "${index + 1}",
+            summary = action.summary(),
+            opened = opened,
+            onToggle = onToggle,
+            onRemove = onRemove,
+            onMove = onMove.takeIf { total > 1 },
+            canMoveUp = index > 0,
+            canMoveDown = index < total - 1,
+            padded = false
+        ) {
+            ActionEditor(action, onEdit)
+        }
+    }
+}
+
+/**
+ * 접었다 펴는 조각 하나.
+ *
+ * 편집 화면이 열리면 모든 조각이 펼쳐져 있었다. 단계가 여섯이면 폼 덩어리가 되고,
+ * 고치려던 한 줄을 찾는 데 스크롤이 필요했다.
+ *
+ * 접힌 줄에는 목록 카드가 쓰는 그 요약을 그대로 쓴다 — 「30분 대기」,
+ * 「WireGuard 터널 켜기 · home-server」. 새 언어를 만들지 않고 앱이 이미 아는 말을 쓴다.
+ * 그래서 다 접힌 편집 화면은 목록 카드와 똑같이 읽힌다.
+ *
+ * 옮기고 빼는 버튼은 펼친 것에만 둔다. 접힌 줄에 조작점이 넷이면 다시 복잡해진다.
+ */
+@Composable
+private fun FoldedPiece(
+    mark: Step,
+    accent: Color,
+    order: String?,
+    summary: String,
+    opened: Boolean,
+    onToggle: () -> Unit,
+    onRemove: (() -> Unit)? = null,
+    onMove: ((Int) -> Unit)? = null,
+    canMoveUp: Boolean = false,
+    canMoveDown: Boolean = false,
+    padded: Boolean = true,
+    content: @Composable () -> Unit
+) {
+    val scheme = MaterialTheme.colorScheme
+    Column(Modifier.padding(if (padded) 0.dp else 4.dp)) {
+        Row(
+            Modifier.fillMaxWidth()
+                .heightIn(min = 52.dp)
+                .clickable(
+                    role = Role.Button,
+                    onClickLabel = if (opened) "접기" else "펼쳐서 고치기",
+                    onClick = onToggle
                 )
+                .padding(start = if (padded) 0.dp else 10.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            StepMark(mark, accent)
+            Spacer(Modifier.width(9.dp))
+            if (order != null) {
+                Text(order, style = MonoSmall, color = scheme.onSurfaceVariant)
                 Spacer(Modifier.width(7.dp))
-                Text(
-                    "$kind · ${action.kindLabel()}",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = scheme.onSurface,
-                    modifier = Modifier.weight(1f)
-                )
-                IconButton(onClick = { onMove(-1) }, enabled = index > 0) {
-                    Icon(Icons.Default.ArrowUpward, "위로", Modifier.size(18.dp))
-                }
-                IconButton(onClick = { onMove(1) }, enabled = index < total - 1) {
-                    Icon(Icons.Default.ArrowDownward, "아래로", Modifier.size(18.dp))
-                }
-                // 저장 전이라 되돌릴 수 있는 일이다. 빨강까지 쓸 자리는 아니다
-                IconButton(onClick = onRemove) {
-                    Icon(Icons.Default.Close, "단계 빼기", Modifier.size(18.dp), tint = scheme.onSurfaceVariant)
-                }
             }
+            // 접혀 있을 때 이 줄이 내용의 전부다. 종류가 아니라 무엇을 하는지 적는다
+            Text(
+                summary,
+                style = MaterialTheme.typography.bodyMedium,
+                color = scheme.onSurface,
+                maxLines = if (opened) 2 else 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
+            Icon(
+                if (opened) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowRight,
+                contentDescription = null,
+                modifier = Modifier.size(20.dp),
+                tint = scheme.outline
+            )
+        }
+
+        if (opened) {
             Column(
-                Modifier.padding(end = 8.dp, top = 4.dp),
+                Modifier.padding(start = if (padded) 0.dp else 10.dp, end = 8.dp, bottom = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                ActionEditor(action, onEdit)
+                content()
+
+                // 옮기고 빼는 일은 펼친 뒤에 한다
+                if (onMove != null || onRemove != null) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        onMove?.let { move ->
+                            IconButton(onClick = { move(-1) }, enabled = canMoveUp) {
+                                Icon(Icons.Default.ArrowUpward, "위로", Modifier.size(18.dp))
+                            }
+                            IconButton(onClick = { move(1) }, enabled = canMoveDown) {
+                                Icon(Icons.Default.ArrowDownward, "아래로", Modifier.size(18.dp))
+                            }
+                        }
+                        Spacer(Modifier.weight(1f))
+                        onRemove?.let { remove ->
+                            TextButton(onClick = remove) {
+                                Icon(Icons.Default.Close, null, Modifier.size(16.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("이 단계 빼기")
+                            }
+                        }
+                    }
+                }
             }
         }
     }
