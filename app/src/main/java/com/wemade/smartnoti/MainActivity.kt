@@ -49,6 +49,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.BrightnessAuto
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.FileDownload
@@ -182,6 +183,16 @@ private fun AppRoot(resumeTick: Int) {
         }
     }
 
+    // 실패를 알리려면 안드로이드 13+에서 알림 권한을 받아야 한다
+    val askNotify = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
+    LaunchedEffect(Unit) {
+        if (Build.VERSION.SDK_INT >= 33 &&
+            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            askNotify.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
     // 블루투스 트리거를 쓰려면 안드로이드 12+에서 런타임 승인이 필요하다
     val askBluetooth = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
     LaunchedEffect(Unit) {
@@ -224,7 +235,12 @@ private fun AppRoot(resumeTick: Int) {
             EditScreen(
                 macro = current.macro,
                 onSave = { MacroStore.upsert(context, it); screen = Screen.List },
-                onDelete = { MacroStore.delete(context, current.macro.id); screen = Screen.List },
+                onDelete = {
+                    MacroStore.delete(context, current.macro.id)
+                    MacroHistory.forget(context, current.macro.id)
+                    Alarms.dropWait(context, current.macro.id)
+                    screen = Screen.List
+                },
                 onCancel = { screen = Screen.List }
             )
         }
@@ -399,6 +415,7 @@ private fun MacroListScreen(
                 TextButton(onClick = {
                     MacroStore.delete(context, target.id)
                     MacroHistory.forget(context, target.id)
+                    Alarms.dropWait(context, target.id)
                     deleting = null
                 }) {
                     Text("지우기", color = MaterialTheme.colorScheme.error)
@@ -544,7 +561,15 @@ private fun MacroListScreen(
                 waiting = waiting,
                 history = history,
                 onOpenLog = onOpenLog,
-                onToggle = { macro, on -> MacroStore.upsert(context, macro.copy(enabled = on)) },
+                onCancelWait = { macro ->
+                    Alarms.dropWait(context, macro.id)
+                    scope.launch { snackbar.showMessage("예정된 실행을 취소했습니다 · ${macro.name}") }
+                },
+                onToggle = { macro, on ->
+                    MacroStore.upsert(context, macro.copy(enabled = on))
+                    // 끄는 것은 「지금 막는다」는 뜻이다. 예약해 둔 대기가 살아 있으면 그것도 거둔다
+                    if (!on) Alarms.dropWait(context, macro.id)
+                },
                 onRunNow = { macro ->
                     val service = MacroService.instance
                     if (service == null) {
@@ -602,7 +627,12 @@ private fun MacroListScreen(
  * 눌러 실행 기록으로 갈 수 있게 둔다 — 궁금해지는 자리가 바로 여기다.
  */
 @Composable
-private fun MacroStatusLine(dueAt: Long?, last: MacroHistory.Entry?, onOpenLog: () -> Unit) {
+private fun MacroStatusLine(
+    dueAt: Long?,
+    last: MacroHistory.Entry?,
+    onOpenLog: () -> Unit,
+    onCancelWait: () -> Unit
+) {
     val scheme = MaterialTheme.colorScheme
     // 분이 바뀌면 「21:35」가 「어제 21:35」로 넘어가야 한다. 화면에 들어올 때마다 다시 센다
     val now = remember(dueAt, last) { System.currentTimeMillis() }
@@ -617,10 +647,11 @@ private fun MacroStatusLine(dueAt: Long?, last: MacroHistory.Entry?, onOpenLog: 
         Modifier
             .heightIn(min = 48.dp)
             .fillMaxWidth()
+            // clearAndSetSemantics를 clickable 뒤에 걸면 role과 동작 라벨까지 지워진다.
+            // 읽어 주는 기계에 한 문장으로 넘기면서 「버튼」이라는 사실은 남겨야 한다
+            .semantics(mergeDescendants = true) { contentDescription = status.plain }
             .clickable(role = Role.Button, onClickLabel = "실행 기록 열기", onClick = onOpenLog)
-            // 읽어 주는 기계에는 한 문장으로 넘긴다. 토막이 따로 읽히면 뜻이 흩어진다
-            .clearAndSetSemantics { contentDescription = status.plain }
-            .padding(top = 14.dp),
+            .padding(top = 8.dp),
         verticalAlignment = Alignment.Top
     ) {
         // 시각만 고정폭이다. 앞뒤로 붙는 말은 사람이 읽는 글이라 시스템 글꼴을 쓴다
@@ -633,6 +664,26 @@ private fun MacroStatusLine(dueAt: Long?, last: MacroHistory.Entry?, onOpenLog: 
             Spacer(Modifier.width(7.dp))
         }
         Text(status.tail, style = body, color = color)
+        Spacer(Modifier.weight(1f))
+        if (dueAt != null) {
+            // 예정된 실행을 사람이 지금 취소할 수 있어야 한다. 스위치만으로는 이 창을 못 닫는다
+            IconButton(onClick = onCancelWait, modifier = Modifier.size(40.dp)) {
+                Icon(
+                    Icons.Default.Close,
+                    contentDescription = "예정된 실행 취소",
+                    modifier = Modifier.size(17.dp),
+                    tint = color
+                )
+            }
+        } else {
+            // 이 줄을 누르면 편집이 아니라 기록으로 간다. 그 사실을 표시해 둔다
+            Icon(
+                Icons.Default.KeyboardArrowRight,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
+                tint = MaterialTheme.colorScheme.outline
+            )
+        }
     }
 }
 
@@ -643,6 +694,7 @@ private data class MacroActions(
     val waiting: Map<Long, Long>,
     val history: Map<Long, MacroHistory.Entry>,
     val onOpenLog: () -> Unit,
+    val onCancelWait: (Macro) -> Unit,
     val onToggle: (Macro, Boolean) -> Unit,
     val onRunNow: (Macro) -> Unit,
     val onEdit: (Macro) -> Unit,
@@ -668,6 +720,7 @@ private fun LazyListScope.macroItems(list: List<Macro>, actions: MacroActions) {
             dueAt = actions.waiting[macro.id],
             last = actions.history[macro.id],
             onOpenLog = actions.onOpenLog,
+            onCancelWait = { actions.onCancelWait(macro) },
             onToggle = { actions.onToggle(macro, it) },
             onRunNow = { actions.onRunNow(macro) },
             onClick = { actions.onEdit(macro) },
@@ -815,6 +868,7 @@ private fun MacroCard(
     dueAt: Long?,
     last: MacroHistory.Entry?,
     onOpenLog: () -> Unit,
+    onCancelWait: () -> Unit,
     onToggle: (Boolean) -> Unit,
     onRunNow: () -> Unit,
     onClick: () -> Unit,
@@ -904,7 +958,12 @@ private fun MacroCard(
 
                 // 구성만 보여 주면 "무장됐나"에 답을 못 한다. 마지막으로 무엇을 했는지 한 줄로 남긴다
                 Spacer(Modifier.padding(top = 7.dp))
-                MacroStatusLine(dueAt = dueAt, last = last, onOpenLog = onOpenLog)
+                MacroStatusLine(
+                    dueAt = dueAt,
+                    last = last,
+                    onOpenLog = onOpenLog,
+                    onCancelWait = onCancelWait
+                )
             }
         }
 
@@ -1326,7 +1385,13 @@ private fun ImportConfirmDialog(
 @Composable
 private fun RunLogScreen(onBack: () -> Unit) {
     val context = LocalContext.current
-    val lines by RunLog.lines.collectAsState()
+    val all by RunLog.lines.collectAsState()
+    // 13개 매크로 + 엿보기가 켜지면 실제 신호가 잡음에 묻힌다. 걸러 볼 수 있어야 한다
+    var onlyTrouble by rememberSaveable { mutableStateOf(false) }
+    val lines = remember(all, onlyTrouble) {
+        val quiet = squelch(all)
+        if (onlyTrouble) quiet.filter { it.isTrouble() } else quiet
+    }
     val today = remember {
         java.time.LocalDate.now().format(java.time.format.DateTimeFormatter.ofPattern("MM-dd"))
     }
@@ -1377,6 +1442,25 @@ private fun RunLogScreen(onBack: () -> Unit) {
                 Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
             ) {
+                item {
+                    Row(
+                        Modifier.fillMaxWidth().padding(bottom = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        LogChip("전부", !onlyTrouble) { onlyTrouble = false }
+                        LogChip("실패·멈춤만", onlyTrouble) { onlyTrouble = true }
+                    }
+                }
+                if (lines.isEmpty()) {
+                    item {
+                        Text(
+                            if (onlyTrouble) "막힌 일이 없습니다." else "아직 기록이 없습니다.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(vertical = 14.dp)
+                        )
+                    }
+                }
                 itemsIndexed(lines) { index, line ->
                     if (index > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                     Row(
@@ -1392,10 +1476,15 @@ private fun RunLogScreen(onBack: () -> Unit) {
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Spacer(Modifier.width(10.dp))
+                        // 실패는 눈에 걸려야 하고, 엔진 잡음은 뒤로 물러나야 한다
                         Text(
                             line.substringAfter("  "),
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurface
+                            color = when {
+                                line.isTrouble() -> MaterialTheme.colorScheme.error
+                                line.contains("▶") -> MaterialTheme.colorScheme.onSurface
+                                else -> MaterialTheme.colorScheme.onSurfaceVariant
+                            }
                         )
                     }
                 }
@@ -1408,6 +1497,49 @@ private fun RunLogScreen(onBack: () -> Unit) {
 private suspend fun SnackbarHostState.showMessage(text: String) {
     currentSnackbarData?.dismiss()
     showSnackbar(text)
+}
+
+/** 막힌 일인지. 사람이 기록을 열어 찾는 것은 대개 이 줄이다 */
+private fun String.isTrouble(): Boolean {
+    // 엿보기가 잡아온 알림은 잡음이다. 그 알림 문구에 「실패」가 들어 있어도 이 앱의 실패가 아니다
+    if (contains("알림 들어옴")) return false
+    return contains("보내지 못함") || contains("실패") || contains("■") ||
+        contains("멈춤") || contains("권한") || contains("없어")
+}
+
+/** 걸러 볼 수 있게 만든 칩. 목록 위에 붙는다 */
+@Composable
+private fun LogChip(label: String, picked: Boolean, onClick: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    Text(
+        label,
+        style = MaterialTheme.typography.bodySmall,
+        color = if (picked) scheme.onPrimaryContainer else scheme.onSurfaceVariant,
+        modifier = Modifier
+            .heightIn(min = 40.dp)
+            .background(
+                if (picked) scheme.primaryContainer else scheme.surfaceVariant,
+                RoundedCornerShape(20.dp)
+            )
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 11.dp)
+    )
+}
+
+/**
+ * 같은 말이 잇달아 나오면 한 줄로 줄인다.
+ *
+ * 엔진이 재바인딩될 때마다 「엔진 시작 …」과 「블루투스 · 지금 붙어 있는 …」이 함께 찍히는데,
+ * 32초에 네 번씩 쌓이면 정작 찾으려던 두 줄을 덮는다.
+ */
+private fun squelch(lines: List<String>): List<String> {
+    var lastBody = ""
+    return lines.filter { line ->
+        val body = line.substringAfter("  ")
+        val repeat = body == lastBody
+        lastBody = body
+        !repeat
+    }
 }
 
 /** 기호를 말로 바꾼다. 화면에는 ▶ 가 빠르고, 소리로는 「실행」이 맞다 */

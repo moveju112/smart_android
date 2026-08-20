@@ -26,10 +26,40 @@ object Alarms {
 
     /** 대기가 끝날 때 깨워 달라고 걸어 둔다 */
     fun scheduleResume(context: Context, macroId: Long, dueAt: Long) {
+        set(context, dueAt, resumePending(context, macroId))
+    }
+
+    /**
+     * 걸어 둔 대기를 거둔다. 스위치를 끄거나 매크로를 지울 때 부른다.
+     *
+     * 이게 없으면 꺼 둔 매크로가 30분 뒤에 브로드캐스트를 쏜다. 스위치는 이 앱에서
+     * 「이 자동화를 지금 막는다」를 뜻하는 유일한 손잡이라, 그 손잡이가 거짓말을 하면 안 된다.
+     */
+    fun cancelResume(context: Context, macroId: Long) {
+        val manager = context.getSystemService(AlarmManager::class.java) ?: return
+        runCatching { manager.cancel(resumePending(context, macroId)) }
+    }
+
+    /** 예약을 적어 둔 것과 걸어 둔 알람을 함께 거둔다 */
+    fun dropWait(context: Context, macroId: Long) {
+        PendingWaits.take(context, macroId)
+        cancelResume(context, macroId)
+    }
+
+    /**
+     * 매크로마다 서로 다른 PendingIntent가 되게 한다.
+     *
+     * 요청 코드로 macroId를 넣으면 Long을 Int로 자르면서 아래 32비트만 남는다.
+     * 두 매크로가 같은 값으로 잘리면 FLAG_UPDATE_CURRENT가 먼저 걸린 알람을 조용히
+     * 덮어써서, 한쪽의 30분 대기가 아무 말 없이 사라진다. 그래서 data에 id를 적어
+     * 인텐트 자체를 다르게 만든다 — PendingIntent 동일성은 extras가 아니라 data를 본다.
+     */
+    private fun resumePending(context: Context, macroId: Long): PendingIntent {
         val intent = Intent(context, AlarmReceiver::class.java)
             .setAction(ACTION_RESUME)
+            .setData(android.net.Uri.parse("smartnoti://resume/$macroId"))
             .putExtra(EXTRA_MACRO_ID, macroId)
-        set(context, dueAt, pending(context, macroId.toInt(), intent))
+        return pending(context, macroId.toInt(), intent)
     }
 
     /** 다음 블루투스 확인을 걸어 둔다. 한 번 쓰고 사라지는 알람이라 확인할 때마다 다시 건다 */
@@ -81,6 +111,11 @@ class AlarmReceiver : BroadcastReceiver() {
         }
         val at = PendingWaits.take(context, id) ?: return
         val macro = MacroStore.find(id) ?: return
+        // 기다리는 사이에 꺼 두었을 수 있다. 그때는 이어가지 않는다
+        if (!macro.enabled) {
+            RunLog.add("꺼 두어서 이어가지 않음 · ${macro.name}")
+            return
+        }
         service.resume(macro, at)
     }
 

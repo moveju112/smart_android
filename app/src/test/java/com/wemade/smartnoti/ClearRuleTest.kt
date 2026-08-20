@@ -351,3 +351,37 @@ class SaveProblemTest {
         assertNull(plain.saveProblem())
     }
 }
+
+/** 브로드캐스트 요약 — 목록에서 두 WireGuard 매크로를 구별하는 유일한 글이다 */
+class BroadcastSummaryTest {
+
+    @Test
+    fun `아는 것은 사람 말로, 값이 붙는다`() {
+        val up = Action.Broadcast()
+            .withPreset(broadcastPresets.first { it.label == "WireGuard 터널 켜기" })
+            .copy(extraValue = "home-server")
+        assertEquals("WireGuard 터널 켜기 · home-server", up.summary())
+    }
+
+    @Test
+    fun `비밀값은 요약에서 빠진다`() {
+        val ad = Action.Broadcast()
+            .withPreset(broadcastPresets.first { it.label == "AdGuard 보호 끄기" })
+            .copy(extraValue = "hunter2")
+        assertEquals("AdGuard 보호 끄기", ad.summary())
+    }
+
+    @Test
+    fun `모르는 것은 액션 이름으로 남는다`() {
+        assertEquals(
+            "브로드캐스트 GO",
+            Action.Broadcast(packageName = "com.example.x", action = "GO").summary()
+        )
+    }
+
+    @Test
+    fun `값이 비면 꼬리를 붙이지 않는다`() {
+        val up = Action.Broadcast().withPreset(broadcastPresets.first { it.label == "WireGuard 터널 켜기" })
+        assertEquals("WireGuard 터널 켜기", up.summary())
+    }
+}

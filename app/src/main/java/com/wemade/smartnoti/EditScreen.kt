@@ -213,7 +213,23 @@ fun EditScreen(macro: Macro, onSave: (Macro) -> Unit, onDelete: () -> Unit, onCa
         topBar = {
             TopAppBar(
                 scrollBehavior = scrollBehavior,
-                title = { Text(if (simple) "알림 지우기" else "직접 짜기") },
+                // 비슷한 이름 13개를 오가며 고칠 때, 무엇을 고치는지가 화면에 있어야 한다.
+                // 모드 이름은 아래로 내린다 — 그건 이미 화면 모양으로 알 수 있다
+                title = {
+                    Column {
+                        Text(
+                            draft.name.ifBlank { "새 매크로" },
+                            style = MaterialTheme.typography.titleLarge,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            if (simple) "알림 지우기" else "직접 짜기",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                },
                 navigationIcon = {
                     IconButton(onClick = { leave() }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "뒤로")
@@ -506,18 +522,48 @@ private fun NumberPrompt(title: String, initial: Int, onDone: (Int) -> Unit, onC
 
 @Composable
 private fun SecondsField(seconds: Int, onChange: (Int) -> Unit) {
-    OutlinedTextField(
-        value = seconds.toString(),
-        onValueChange = { onChange(it.filter(Char::isDigit).take(6).toIntOrNull() ?: 0) },
-        label = { Text("몇 초 뒤") },
-        // 60초가 넘어야 "5분"처럼 바꿔 읽을 값이 생긴다. 그 아래는 같은 말을 두 번 하는 셈이다
-        supportingText = if (seconds >= 60) {
-            { Text(humanSeconds(seconds)) }
-        } else null,
-        singleLine = true,
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-        modifier = Modifier.fillMaxWidth()
-    )
+    // 30분을 1800이라 적게 하던 자리다. 이 앱은 다른 모든 곳에서 「30분」이라 말하는데
+    // 정작 값을 넣는 자리만 초로 되돌아갔다. 단위를 골라 적게 한다
+    val unit = remember(seconds) { fittingUnit(seconds) }
+    val shown = if (seconds == 0) "" else (seconds / unit.factor).toString()
+
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        OutlinedTextField(
+            value = shown,
+            onValueChange = {
+                val amount = it.filter(Char::isDigit).take(5).toIntOrNull() ?: 0
+                onChange(amount * unit.factor)
+            },
+            label = { Text("얼마 뒤") },
+            supportingText = if (seconds >= 60) { { Text(humanSeconds(seconds)) } } else null,
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            modifier = Modifier.fillMaxWidth()
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+            TimeUnit.entries.forEach { candidate ->
+                ChoiceChip(candidate.label, candidate == unit, Modifier.weight(1f)) {
+                    // 단위를 바꾸면 적어 둔 숫자를 그 단위로 읽는다. 30 분 -> 30 시간
+                    val amount = (seconds / unit.factor).coerceAtLeast(0)
+                    onChange(amount * candidate.factor)
+                }
+            }
+        }
+    }
+}
+
+/** 대기 시간을 적는 단위 */
+private enum class TimeUnit(val label: String, val factor: Int) {
+    Seconds("초", 1),
+    Minutes("분", 60),
+    Hours("시간", 3600)
+}
+
+/** 지금 값을 딱 나누어 떨어지게 담는 가장 큰 단위 */
+private fun fittingUnit(seconds: Int): TimeUnit = when {
+    seconds > 0 && seconds % 3600 == 0 -> TimeUnit.Hours
+    seconds > 0 && seconds % 60 == 0 -> TimeUnit.Minutes
+    else -> TimeUnit.Seconds
 }
 
 // ─────────────────────────── 직접 짜기 (고급) ───────────────────────────

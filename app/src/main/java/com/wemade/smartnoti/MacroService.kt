@@ -206,8 +206,10 @@ class MacroService : NotificationListenerService() {
                 PendingWaits.take(this, id)
             } else {
                 PendingWaits.take(this, id)
-                RunLog.add("밀린 대기를 이어서 함 · ${macro.name}")
-                resume(macro, at)
+                if (macro.enabled) {
+                    RunLog.add("밀린 대기를 이어서 함 · ${macro.name}")
+                    resume(macro, at)
+                }
             }
         }
 
@@ -350,6 +352,12 @@ class MacroService : NotificationListenerService() {
      * 이어가기 전에 지금 붙어 있는 것이 무엇인지 먼저 다시 묻는다.
      */
     fun resume(macro: Macro, fromIndex: Int) {
+        // 기다리는 사이에 꺼 두었을 수 있다. 알람 쪽에서도 보지만 여기서도 막는다 —
+        // 이 문이 열려 있으면 꺼 둔 매크로가 브로드캐스트를 쏜다
+        if (!macro.enabled) {
+            RunLog.add("꺼 두어서 이어가지 않음 · ${macro.name}")
+            return
+        }
         scope.launch {
             syncConnectedQuietly()
             launchMacro(macro, force = false, fromIndex = fromIndex)
@@ -365,10 +373,6 @@ class MacroService : NotificationListenerService() {
         connectedDevices += now
         seeded = true
     }
-
-    // 브로드캐스트가 막히면 남은 단계는 계속 돌아야 하지만 결과는 실패로 남아야 한다
-    @Volatile
-    private var lastActionFailed = false
 
     private fun launchMacro(macro: Macro, force: Boolean, fromIndex: Int = 0): Job? {
         if (running[macro.id]?.isActive == true) return null
@@ -398,19 +402,33 @@ class MacroService : NotificationListenerService() {
                         break
                     }
 
-                    if (!runAction(action, force)) {
-                        Log.i(TAG, "중단: ${macro.name}")
-                        RunLog.add("■ 조건이 맞지 않아 멈춤 · ${macro.name}")
-                        outcome = MacroHistory.Outcome.Stopped
-                        break
+                    when (runAction(action, force)) {
+                        Done.Stop -> {
+                            Log.i(TAG, "중단: ${macro.name}")
+                            RunLog.add("■ 조건이 맞지 않아 멈춤 · ${macro.name}")
+                            outcome = MacroHistory.Outcome.Stopped
+                            break
+                        }
+                        // 브로드캐스트가 막혀도 남은 단계는 돈다. 결과만 실패로 남는다
+                        Done.Failed -> outcome = MacroHistory.Outcome.Failed
+                        Done.Ok -> Unit
                     }
-                    if (lastActionFailed) outcome = MacroHistory.Outcome.Failed
                     at++
                 }
             } finally {
                 EngineState.markRunning(macro.id, false)
                 // 알람에 넘긴 것은 아직 끝난 것이 아니다. 그때는 대기 표시가 이 자리를 대신한다
-                if (!handedOff) MacroHistory.record(this@MacroService, macro.id, outcome)
+                if (!handedOff) {
+                    MacroHistory.record(this@MacroService, macro.id, outcome)
+                    // 실패는 화면 밖에서도 알려야 한다. 앱을 열 이유는 이미 이상함을 느낀 뒤에 생긴다
+                    if (outcome == MacroHistory.Outcome.Failed) {
+                        val why = RunLog.lines.value.firstOrNull { it.contains("브로드캐스트 보내지 못함") }
+                            ?.substringAfter("·")?.trim()
+                        Notify.failed(this@MacroService, macro, why)
+                    } else {
+                        Notify.clearFailed(this@MacroService, macro)
+                    }
+                }
             }
         }
         running[macro.id] = job
@@ -425,29 +443,38 @@ class MacroService : NotificationListenerService() {
         RunLog.add("${humanSeconds(seconds)} 뒤에 이어서 함 · ${macro.name}")
     }
 
-    /** 액션 하나 실행. false를 주면 남은 액션을 실행하지 않는다 */
-    private suspend fun runAction(action: Action, force: Boolean): Boolean {
-        lastActionFailed = false
+    /**
+     * 액션 하나가 어떻게 끝났는지.
+     *
+     * 전에는 실패 여부를 서비스의 공유 필드에 적었다. 두 매크로가 겹쳐 도는 순간
+     * 한쪽의 실패가 다른 쪽 카드를 「실패」로 물들였다. 상태줄의 정직함이 이 앱의 상품이라
+     * 그 오염은 비싸다. 그래서 결과를 돌려주는 값으로 바꿨다.
+     */
+    private enum class Done { Ok, Failed, Stop }
+
+    /** 액션 하나 실행 */
+    private suspend fun runAction(action: Action, force: Boolean): Done {
+        var failed = false
         when (action) {
             // ponytail: 긴 대기는 도즈 모드에서 늘어질 수 있다. 분 단위 정확도가 필요해지면 AlarmManager로 교체
             is Action.Delay -> if (!force) delay(action.seconds * 1000L)
 
             // 옛 매크로에만 남아 있다. "그 상태면 멈춤"이므로 뒤집어 넘긴다
             is Action.StopIfBluetooth -> {
-                if (force) return true
+                if (force) return Done.Ok
                 val ok = evaluate(
                     Condition.Bluetooth(action.address, action.deviceName, !action.connected)
                 )
-                if (!ok) return false
+                if (!ok) return Done.Stop
             }
 
             is Action.StopUnless -> {
-                if (force) return true
-                if (!evaluate(action.condition)) return false
+                if (force) return Done.Ok
+                if (!evaluate(action.condition)) return Done.Stop
             }
 
             is Action.ClearNotification -> {
-                val active = runCatching { activeNotifications }.getOrNull() ?: return true
+                val active = runCatching { activeNotifications }.getOrNull() ?: return Done.Ok
 
                 // 1. 그 앱 알림을 먼저 추려 둔다. 못 지웠을 때 무엇이 있었는지 알려주기 위함이다
                 val fromApp = active.filter {
@@ -486,8 +513,7 @@ class MacroService : NotificationListenerService() {
                 if (blocked != null) {
                     RunLog.add("브로드캐스트 보내지 못함 · $blocked")
                     Log.w(TAG, "브로드캐스트 막힘: $blocked")
-                    lastActionFailed = true
-                    return true
+                    return Done.Failed
                 }
 
                 runCatching { sendBroadcast(intent) }
@@ -495,11 +521,11 @@ class MacroService : NotificationListenerService() {
                     .onFailure {
                         Log.w(TAG, "브로드캐스트 실패: ${it.message}")
                         RunLog.add("브로드캐스트 실패 · ${it.message}")
-                        lastActionFailed = true
+                        failed = true
                     }
             }
         }
-        return true
+        return if (failed) Done.Failed else Done.Ok
     }
 
     companion object {
