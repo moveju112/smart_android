@@ -90,6 +90,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -122,6 +123,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         RunLog.attach(this)
+        Diagnostics.load(this)
         ThemeState.load(this)
         MacroStore.load(this)
         MacroHistory.load(this)
@@ -145,6 +147,12 @@ private sealed interface Screen {
  * 화면을 돌리면 액티비티가 다시 만들어진다.
  * 그때 목록으로 튕기지 않게, 지금 보던 화면을 문자열 한 줄로 접어 두었다 편다.
  */
+/** 고른 매크로 id 묶음을 화면 밖으로 넘긴다. 번들은 목록만 담을 수 있어 한 번 펴서 보낸다 */
+private val LongSetSaver = listSaver<Set<Long>, Long>(
+    save = { it.toList() },
+    restore = { it.toSet() }
+)
+
 private val ScreenSaver = Saver<Screen, String>(
     save = {
         when (it) {
@@ -277,7 +285,8 @@ private fun MacroListScreen(
     var showNewMacro by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf<Macro?>(null) }
     var deleting by remember { mutableStateOf<Macro?>(null) }
-    var moving by remember { mutableStateOf<Macro?>(null) }
+    // 여러 개를 체크해 둔 채로 회전하면 통째로 날아갔다. 매크로 자체가 아니라 id만 붙잡아 둔다
+    var movingId by rememberSaveable { mutableStateOf<Long?>(null) }
     // 접어 둔 폴더는 앱을 껐다 켜도 접힌 채로 있어야 한다
     val expanded = remember { mutableStateListOf<String>().apply { addAll(FolderState.expanded(context)) } }
     val snackbar = remember { SnackbarHostState() }
@@ -351,7 +360,13 @@ private fun MacroListScreen(
         )
     }
 
-    moving?.let { target ->
+    movingId?.let { id ->
+        val target = macros.firstOrNull { it.id == id }
+        if (target == null) {
+            // 다이얼로그가 떠 있는 사이 그 매크로가 사라졌다
+            movingId = null
+            return@let
+        }
         FolderPickDialog(
             target = target,
             others = macros.filter { it.id != target.id }.inOrder(order),
@@ -363,7 +378,7 @@ private fun MacroListScreen(
                     expanded.add(folder)
                     FolderState.setExpanded(context, folder, true)
                 }
-                moving = null
+                movingId = null
                 scope.launch {
                     snackbar.showMessage(
                         if (folder.isBlank()) "${ids.size}개를 폴더에서 뺐습니다"
@@ -371,7 +386,7 @@ private fun MacroListScreen(
                     )
                 }
             },
-            onClose = { moving = null }
+            onClose = { movingId = null }
         )
     }
 
@@ -557,7 +572,7 @@ private fun MacroListScreen(
                     MacroStore.upsert(context, copy)
                     scope.launch { snackbar.showMessage("${copy.name} · 꺼 둔 채로 만들었습니다") }
                 },
-                onMove = { moving = it },
+                onMove = { movingId = it.id },
                 onDelete = { deleting = it }
             )
 
@@ -905,8 +920,9 @@ private fun FolderPickDialog(
     onClose: () -> Unit
 ) {
     var naming by remember { mutableStateOf(false) }
-    var picked by remember { mutableStateOf(target.folder) }
-    val also = remember { mutableStateListOf<Long>() }
+    // 회전하면 고른 폴더와 체크가 통째로 날아갔다. 사람이 한 결정이므로 붙잡아 둔다
+    var picked by rememberSaveable { mutableStateOf(target.folder) }
+    var also by rememberSaveable(stateSaver = LongSetSaver) { mutableStateOf(emptySet<Long>()) }
 
     if (naming) {
         TextPrompt(
@@ -948,14 +964,14 @@ private fun FolderPickDialog(
                     Spacer(Modifier.height(4.dp))
                     others.forEach { macro ->
                         MacroCheck(macro, macro.id in also) { on ->
-                            if (on) also.add(macro.id) else also.remove(macro.id)
+                            also = if (on) also + macro.id else also - macro.id
                         }
                     }
                 }
             }
         },
         confirmButton = {
-            TextButton(onClick = { onApply(picked, also.toSet() + target.id) }) {
+            TextButton(onClick = { onApply(picked, also + target.id) }) {
                 Text(if (also.isEmpty()) "넣기" else "${also.size + 1}개 넣기")
             }
         },
@@ -1275,6 +1291,7 @@ private fun ImportConfirmDialog(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun RunLogScreen(onBack: () -> Unit) {
+    val context = LocalContext.current
     val lines by RunLog.lines.collectAsState()
     val today = remember {
         java.time.LocalDate.now().format(java.time.format.DateTimeFormatter.ofPattern("MM-dd"))
@@ -1309,7 +1326,7 @@ private fun RunLogScreen(onBack: () -> Unit) {
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                    QuietSwitch(checked = peek) { Diagnostics.peekNotifications.value = it }
+                    QuietSwitch(checked = peek) { Diagnostics.setPeek(context, it) }
                 }
             }
 

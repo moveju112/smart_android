@@ -479,3 +479,20 @@ private fun Action.Broadcast.broadcastSummary(): String {
     if (known != null) return known.label + tail
     return "브로드캐스트 " + action.ifBlank { className.ifBlank { packageName } } + tail
 }
+
+
+/**
+ * 저장하면 안 되는 이유. 없으면 null.
+ *
+ * 경고만 띄우고 저장을 막지 않으면 "영원히 여기서 멈추는 매크로"가 만들어진다.
+ * 사람은 경고를 읽고도 저장 버튼을 누른다 — 그게 잘못이 아니라, 막지 않은 쪽이 잘못이다.
+ */
+fun Macro.saveProblem(): String? {
+    val conditions = actions.mapNotNull { (it as? Action.StopUnless)?.condition }
+    conditions.forEach { condition ->
+        if (condition is Condition.Battery && condition.atLeast > condition.atMost) {
+            return "배터리 조건의 최소가 최대보다 큽니다. 이대로면 이 매크로는 늘 거기서 멈춥니다."
+        }
+    }
+    return null
+}

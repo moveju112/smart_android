@@ -144,9 +144,10 @@ class MacroWidget : AppWidgetProvider() {
             val macro = macroOf(context, widgetId)
             val views = RemoteViews(context.packageName, R.layout.widget_macro)
             views.setTextViewText(R.id.widget_name, macro?.name ?: "매크로 없음")
+            // 눌러도 다시 지정되지 않는다. 그러니 그렇게 적지 않는다 — 위젯은 놓을 때만 고를 수 있다
             views.setTextViewText(
                 R.id.widget_hint,
-                macro?.firstTrigger()?.summary() ?: "눌러서 다시 지정하세요"
+                macro?.firstTrigger()?.summary() ?: "이 위젯을 지우고 다시 놓으세요"
             )
 
             val intent = Intent(context, MacroWidget::class.java).apply {

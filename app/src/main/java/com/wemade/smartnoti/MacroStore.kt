@@ -144,7 +144,27 @@ object EngineState {
  * 켜 두면 들어오는 알림을 전부 실행 기록에 남긴다. 시끄러우니 평소엔 꺼 둔다.
  */
 object Diagnostics {
+    private const val PREFS = "diagnostics"
+    private const val KEY_PEEK = "peek"
+
     val peekNotifications = MutableStateFlow(false)
+
+    /**
+     * 켜 둔 것을 기억한다.
+     *
+     * 이 진단이 필요한 상황이 바로 앱이 정리되는 상황이다. 프로세스와 함께 꺼지면
+     * 정작 보려던 것을 못 본다.
+     */
+    fun load(context: Context) {
+        peekNotifications.value = prefs(context).getBoolean(KEY_PEEK, false)
+    }
+
+    fun setPeek(context: Context, on: Boolean) {
+        peekNotifications.value = on
+        prefs(context).edit().putBoolean(KEY_PEEK, on).apply()
+    }
+
+    private fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 }
 
 /**

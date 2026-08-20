@@ -152,8 +152,26 @@ fun EditScreen(macro: Macro, onSave: (Macro) -> Unit, onDelete: () -> Unit, onCa
     // 처음 만드는 매크로인지. 이름은 이때 한 번만 묻고, 그 뒤로는 메뉴에서 고친다
     val isNew = remember { MacroStore.find(macro.id) == null }
 
+    // 저장할 수 없는 이유가 있으면 그것부터 보여 준다. 경고만 하고 저장을 허락하면
+    // "영원히 거기서 멈추는 매크로"가 만들어진다
+    var problem by remember { mutableStateOf<String?>(null) }
+
     fun save() {
+        val blocked = collect().saveProblem()
+        if (blocked != null) {
+            problem = blocked
+            return
+        }
         if (isNew) askName = true else onSave(collect())
+    }
+
+    problem?.let { reason ->
+        AlertDialog(
+            onDismissRequest = { problem = null },
+            title = { Text("이대로는 저장할 수 없습니다") },
+            text = { Text(reason) },
+            confirmButton = { TextButton(onClick = { problem = null }) { Text("고치기") } }
+        )
     }
 
     if (confirmLeave) {

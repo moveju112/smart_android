@@ -319,3 +319,35 @@ class BroadcastPresetTest {
         assertEquals("브로드캐스트 GO", other.summary())
     }
 }
+
+/** 저장을 막아야 하는 매크로 — 경고만 하고 통과시키면 영원히 멈추는 매크로가 남는다 */
+class SaveProblemTest {
+
+    private fun withCondition(condition: Condition) = Macro(
+        id = 1, name = "t",
+        triggers = listOf(Trigger.Wifi()),
+        actions = listOf(Action.StopUnless(condition), Action.Broadcast(action = "GO"))
+    )
+
+    @Test
+    fun `배터리 최소가 최대보다 크면 저장을 막는다`() {
+        val problem = withCondition(Condition.Battery(atLeast = 90, atMost = 10)).saveProblem()
+        assertEquals(true, problem?.contains("배터리"))
+    }
+
+    @Test
+    fun `제대로 된 범위는 그냥 통과한다`() {
+        assertNull(withCondition(Condition.Battery(atLeast = 10, atMost = 90)).saveProblem())
+        assertNull(withCondition(Condition.Battery(atLeast = 50, atMost = 50)).saveProblem())
+    }
+
+    @Test
+    fun `조건이 없는 매크로도 통과한다`() {
+        val plain = Macro(
+            id = 1, name = "t",
+            triggers = listOf(Trigger.Wifi()),
+            actions = listOf(Action.Broadcast(action = "GO"))
+        )
+        assertNull(plain.saveProblem())
+    }
+}

@@ -167,6 +167,8 @@ class MacroService : NotificationListenerService() {
         MacroStore.load(this)
         MacroHistory.load(this)
         PendingWaits.load(this)
+        // 엔진은 화면 없이 혼자 뜰 수 있다. 켜 둔 진단을 여기서도 읽어야 한다
+        Diagnostics.load(this)
         val filter = IntentFilter().apply {
             addAction(BluetoothDevice.ACTION_ACL_CONNECTED)
             addAction(BluetoothDevice.ACTION_ACL_DISCONNECTED)
