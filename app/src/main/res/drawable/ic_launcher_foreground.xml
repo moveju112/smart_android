@@ -3,12 +3,37 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- 종 모양 -->
+    <!--
+        모이는 신호. 두 조건이 하나로 모여 동작이 된다.
+        청록은 신호, 앰버는 시간, 흰 사각은 실제로 하는 일 — 앱 화면의 레일과 같은 색 규칙이다.
+        런처의 원형 마스크는 가운데 지름 72만 남긴다. 대각선 위에 놓인 두 점이 먼저 잘리므로,
+        모든 도형을 중심에서 33 안에 두었다. 이 여유를 줄이면 위쪽 두 점이 반달이 된다.
+    -->
+
+    <!-- 두 갈래가 가운데로 모여 아래로 떨어지는 선 -->
+    <path
+        android:pathData="M36,37 L54,53 L72,37 M54,53 L54,76"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="3.2"
+        android:strokeAlpha="0.45" />
+
+    <!-- 왼쪽 조건 (신호) -->
+    <path
+        android:fillColor="#4FD1C5"
+        android:pathData="M29,37 a7,7 0 1,0 14,0 a7,7 0 1,0 -14,0 Z" />
+
+    <!-- 오른쪽 조건 (시간) -->
+    <path
+        android:fillColor="#FFB454"
+        android:pathData="M65,37 a7,7 0 1,0 14,0 a7,7 0 1,0 -14,0 Z" />
+
+    <!-- 둘이 만나는 자리 -->
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M54,30c-7.7,0 -14,6.3 -14,14v11l-5,7v3h38v-3l-5,-7V44C68,36.3 61.7,30 54,30zM54,72c2.8,0 5,-2.2 5,-5h-10C49,69.8 51.2,72 54,72z" />
-    <!-- 지운다는 뜻의 사선 -->
+        android:pathData="M48,53 a6,6 0 1,0 12,0 a6,6 0 1,0 -12,0 Z" />
+
+    <!-- 하는 일 -->
     <path
-        android:fillColor="#FF6B6B"
-        android:pathData="M36,72l36,-36l5,5l-36,36z" />
+        android:fillColor="#FFFFFF"
+        android:pathData="M49.5,69 h9 a2.5,2.5 0 0 1 2.5,2.5 v9 a2.5,2.5 0 0 1 -2.5,2.5 h-9 a2.5,2.5 0 0 1 -2.5,-2.5 v-9 a2.5,2.5 0 0 1 2.5,-2.5 Z" />
 </vector>
