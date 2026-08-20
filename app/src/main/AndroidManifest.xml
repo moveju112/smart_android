@@ -53,6 +53,14 @@
         </service>
 
 
+        <!--
+            긴 대기가 끝났을 때, 그리고 블루투스 상태를 다시 볼 때 시스템이 깨우는 곳.
+            우리가 걸어 둔 알람만 도착하므로 밖에 열지 않는다.
+        -->
+        <receiver
+            android:name=".AlarmReceiver"
+            android:exported="false" />
+
         <!-- 설치 결과를 돌려받는 곳. 시스템이 우리에게만 보내므로 밖에 열지 않는다 -->
         <receiver
             android:name=".InstallResultReceiver"

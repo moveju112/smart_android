@@ -102,15 +102,91 @@ object Diagnostics {
 
 /**
  * 최근 실행 기록. 실기기에서 매크로가 정말 도는지 확인할 창구다.
- * ponytail: 메모리에만 남는다. 앱을 껐다 켜면 사라지고, 필요해지면 파일로 내리면 된다
+ *
+ * 파일에도 적는다. 안드로이드가 앱을 정리하면 메모리에 있던 기록이 통째로 사라져서,
+ * 정작 무엇이 잘못됐는지 알아야 할 때 아무것도 남지 않는 일이 있었다.
+ * 날짜까지 적는 것도 그래서다 — 어제 일인지 오늘 일인지 알아야 짚을 수 있다.
  */
 object RunLog {
-    private const val MAX_LINES = 100
+    private const val MAX_LINES = 400
+    private const val MAX_BYTES = 96 * 1024
+    private const val FILE = "runlog.txt"
+
     private val _lines = MutableStateFlow<List<String>>(emptyList())
     val lines: StateFlow<List<String>> = _lines
 
-    fun add(message: String) {
-        val stamp = java.time.LocalTime.now().withNano(0).toString()
-        _lines.value = (listOf("$stamp  $message") + _lines.value).take(MAX_LINES)
+    @Volatile
+    private var home: Context? = null
+
+    private val stampFormat = java.time.format.DateTimeFormatter.ofPattern("MM-dd HH:mm:ss")
+
+    /**
+     * 파일에 적기 시작한다. 화면과 엔진 어느 쪽이 먼저 떠도 좋다.
+     * 처음 붙을 때 지난 기록을 읽어 오므로, 앱이 죽었다 살아나도 어제 일이 보인다.
+     */
+    @Synchronized
+    fun attach(context: Context) {
+        if (home != null) return
+        home = context.applicationContext
+        val f = file() ?: return
+        if (!f.exists()) return
+        val past = runCatching { f.readLines() }.getOrDefault(emptyList())
+        _lines.value = past.takeLast(MAX_LINES).asReversed()
     }
+
+    fun add(message: String) {
+        val line = java.time.LocalDateTime.now().format(stampFormat) + "  " + message
+        _lines.value = (listOf(line) + _lines.value).take(MAX_LINES)
+        val f = file() ?: return
+        runCatching {
+            f.appendText(line + "\n")
+            // 커지면 뒤쪽 절반만 남긴다. 매번 세지 않고 크기로만 판단한다
+            if (f.length() > MAX_BYTES) {
+                f.writeText(f.readLines().takeLast(MAX_LINES / 2).joinToString("\n", postfix = "\n"))
+            }
+        }
+    }
+
+    private fun file(): File? = home?.let { File(it.filesDir, FILE) }
+}
+
+/**
+ * 알람에 맡겨 둔 대기.
+ *
+ * 30분을 기다리는 동안 안드로이드가 앱을 정리하면 메모리에 있던 대기는 그대로 사라진다.
+ * 남은 단계가 몇 번째인지와 깨울 시각을 적어 두고, 알람이 오면 거기서 이어간다.
+ */
+object PendingWaits {
+    private const val PREFS = "waits"
+
+    fun put(context: Context, macroId: Long, nextIndex: Int, dueAt: Long) {
+        prefs(context).edit().putString(macroId.toString(), "$nextIndex:$dueAt").apply()
+    }
+
+    /** 꺼내면서 지운다. 같은 대기를 두 번 이어가지 않으려는 것이다 */
+    fun take(context: Context, macroId: Long): Int? {
+        val raw = prefs(context).getString(macroId.toString(), null) ?: return null
+        prefs(context).edit().remove(macroId.toString()).apply()
+        return parse(raw)?.first
+    }
+
+    /** 깨울 시각이 이미 지난 것들. 알람을 놓친 사이 앱이 죽었다면 엔진이 뜨면서 챙긴다 */
+    fun overdue(context: Context, now: Long): Map<Long, Int> =
+        prefs(context).all.mapNotNull { (key, value) ->
+            val id = key.toLongOrNull() ?: return@mapNotNull null
+            val (at, due) = parse(value as? String ?: return@mapNotNull null) ?: return@mapNotNull null
+            if (due <= now) id to at else null
+        }.toMap()
+
+    private fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+}
+
+/**
+ * 적어 둔 대기 한 줄을 (남은 단계, 깨울 시각)으로 읽는다.
+ * 형식이 깨졌으면 null — 옛 형식이 남아 있어도 앱이 죽지 않게 한다.
+ */
+internal fun parse(raw: String): Pair<Int, Long>? {
+    val at = raw.substringBefore(':').toIntOrNull() ?: return null
+    val due = raw.substringAfter(':', "").toLongOrNull() ?: return null
+    return at to due
 }

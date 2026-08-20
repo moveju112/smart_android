@@ -1,11 +1,14 @@
 package com.wemade.smartnoti
 
 import android.bluetooth.BluetoothDevice
+import android.bluetooth.BluetoothManager
+import android.bluetooth.BluetoothProfile
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.os.Build
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
@@ -22,6 +25,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * 매크로 엔진. 알림 리스너가 시스템에 상시 물려 있으므로 블루투스·와이파이 감시도 여기에 얹는다.
@@ -33,6 +38,7 @@ class MacroService : NotificationListenerService() {
     private val running = mutableMapOf<Long, Job>()   // 실행 중인 매크로 (중복 실행 방지)
     private val connectedDevices = mutableSetOf<String>()   // 지금 붙어 있는 블루투스 기기 주소
     private var connectivity: ConnectivityManager? = null
+    private var seeded = false   // 붙어 있는 기기를 한 번이라도 물어봤는지
 
     // 1. 블루투스 연결/해제 브로드캐스트 — 암시적 브로드캐스트 제한 때문에 런타임 등록만 가능
     private val bluetoothReceiver = object : BroadcastReceiver() {
@@ -41,17 +47,101 @@ class MacroService : NotificationListenerService() {
                 intent, BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java
             )
             val connected = intent.action == BluetoothDevice.ACTION_ACL_CONNECTED
-            // ponytail: 서비스가 뜬 뒤의 연결/해제만 추적한다. 그 전부터 붙어 있던 기기는 모른다
-            device?.address?.let { if (connected) connectedDevices += it else connectedDevices -= it }
+            val address = device?.address
+            if (address != null) {
+                if (connected) connectedDevices += address else connectedDevices -= address
+            }
             // 매크로가 걸리지 않아도 남긴다 — 기기 주소가 맞는지 확인하는 용도
-            RunLog.add((if (connected) "블루투스 연결" else "블루투스 해제") + " · ${device?.address ?: "알 수 없음"}")
-            fire { trigger ->
-                trigger is Trigger.Bluetooth &&
-                    trigger.connected == connected &&
-                    (trigger.address.isBlank() || trigger.address.equals(device?.address, ignoreCase = true))
+            RunLog.add((if (connected) "블루투스 연결" else "블루투스 해제") + " · ${address ?: "알 수 없음"}")
+            fireBluetooth(address, connected)
+        }
+    }
+
+    /** 주소가 맞는 블루투스 매크로를 돌린다. 알림으로 알았든 다시 물어서 알았든 같은 길을 탄다 */
+    private fun fireBluetooth(address: String?, connected: Boolean) {
+        fire { trigger ->
+            trigger is Trigger.Bluetooth &&
+                trigger.connected == connected &&
+                (trigger.address.isBlank() || trigger.address.equals(address, ignoreCase = true))
+        }
+    }
+
+    /**
+     * 지금 실제로 붙어 있는 기기를 시스템에 직접 물어본다.
+     *
+     * 연결/해제 알림만 믿으면 놓치는 자리가 있다. 앱이 정리된 사이에 일어난 일은 오지 않고,
+     * 알림이 오더라도 이 앱이 그때 살아 있어야 받는다. 차에서 내린 그 한 번을 놓치면
+     * 30분 뒤에 할 일도 함께 사라진다. 그래서 알람으로 주기마다 다시 물어 그물을 하나 더 둔다.
+     *
+     * 오디오(A2DP)와 통화(HEADSET) 두 갈래를 본다 — 차량은 둘 중 어느 쪽으로든 붙는다.
+     */
+    private fun askConnectedDevices(then: (Set<String>) -> Unit) {
+        if (!hasBluetoothPermission()) {
+            then(emptySet())
+            return
+        }
+        val adapter = getSystemService(BluetoothManager::class.java)?.adapter
+        if (adapter == null || !adapter.isEnabled) {
+            then(emptySet())
+            return
+        }
+        val profiles = listOf(BluetoothProfile.A2DP, BluetoothProfile.HEADSET)
+        val found = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+        val left = AtomicInteger(profiles.size)
+
+        // 프로필마다 프록시를 얻어 목록을 읽고 곧 닫는다. 마지막 것이 끝나면 한 번만 넘긴다
+        fun done() { if (left.decrementAndGet() == 0) then(found.toSet()) }
+
+        profiles.forEach { profile ->
+            val listener = object : BluetoothProfile.ServiceListener {
+                override fun onServiceConnected(which: Int, proxy: BluetoothProfile) {
+                    runCatching { proxy.connectedDevices.forEach { found += it.address } }
+                    runCatching { adapter.closeProfileProxy(which, proxy) }
+                    done()
+                }
+
+                override fun onServiceDisconnected(which: Int) = done()
+            }
+            val asked = runCatching { adapter.getProfileProxy(this, listener, profile) }.getOrDefault(false)
+            if (!asked) done()
+        }
+    }
+
+    /**
+     * 물어본 결과를 기억하던 것과 견주어, 달라진 만큼 매크로를 돌린다.
+     * 엔진이 막 떴을 때는 견줄 과거가 없으므로 채우기만 하고 아무것도 돌리지 않는다.
+     */
+    fun recheckBluetooth() {
+        askConnectedDevices { now ->
+            if (!seeded) {
+                seeded = true
+                connectedDevices.clear()
+                connectedDevices += now
+                RunLog.add(
+                    if (now.isEmpty()) "블루투스 · 지금 붙어 있는 기기 없음"
+                    else "블루투스 · 지금 붙어 있는 기기 " + now.joinToString(", ")
+                )
+                return@askConnectedDevices
+            }
+            val gone = connectedDevices - now
+            val fresh = now - connectedDevices
+            connectedDevices.clear()
+            connectedDevices += now
+            gone.forEach { address ->
+                RunLog.add("블루투스 해제 확인 · $address")
+                fireBluetooth(address, connected = false)
+            }
+            fresh.forEach { address ->
+                RunLog.add("블루투스 연결 확인 · $address")
+                fireBluetooth(address, connected = true)
             }
         }
     }
+
+    private fun hasBluetoothPermission(): Boolean =
+        Build.VERSION.SDK_INT < 31 ||
+            checkSelfPermission(android.Manifest.permission.BLUETOOTH_CONNECT) ==
+            PackageManager.PERMISSION_GRANTED
 
     // 2. 와이파이 연결/해제.
     // 콜백을 걸면 이미 붙어 있는 와이파이에도 onAvailable이 한 번 오므로,
@@ -73,6 +163,7 @@ class MacroService : NotificationListenerService() {
 
     override fun onListenerConnected() {
         super.onListenerConnected()
+        RunLog.attach(this)
         MacroStore.load(this)
         val filter = IntentFilter().apply {
             addAction(BluetoothDevice.ACTION_ACL_CONNECTED)
@@ -90,7 +181,32 @@ class MacroService : NotificationListenerService() {
         instance = this
         EngineState.connected.value = true
         Log.i(TAG, "엔진 시작 — 매크로 ${MacroStore.macros.value.size}개")
-        RunLog.add("엔진 시작")
+
+        // 무엇을 감시하고 있는지 남긴다. 안 도는 이유를 나중에 짚으려면 이 줄이 있어야 한다
+        val watching = buildString {
+            append("엔진 시작 · 매크로 ").append(MacroStore.macros.value.size).append("개 · 블루투스 ")
+            append(if (hasBluetoothPermission()) "감시 중" else "권한 없음(근처 기기)")
+            append(" · 와이파이 ").append(if (wifiUp) "붙어 있음" else "끊김")
+        }
+        RunLog.add(watching)
+
+        // 붙어 있는 기기를 물어 채우고, 주기 확인을 걸어 둔다
+        recheckBluetooth()
+        Alarms.scheduleWatch(this)
+
+        // 알람을 놓친 사이 앱이 죽었을 수 있다. 시각이 지난 대기는 지금 이어서 한다
+        val late = PendingWaits.overdue(this, System.currentTimeMillis())
+        late.forEach { (id, at) ->
+            val macro = MacroStore.find(id)
+            if (macro == null) {
+                PendingWaits.take(this, id)
+            } else {
+                PendingWaits.take(this, id)
+                RunLog.add("밀린 대기를 이어서 함 · ${macro.name}")
+                resume(macro, at)
+            }
+        }
+
         // 하루에 한 번, 새 버전이 올라왔으면 알아서 받아 깔아둔다
         scope.launch { runCatching { Updater.checkAutomatically(this@MacroService) } }
     }
@@ -223,19 +339,59 @@ class MacroService : NotificationListenerService() {
      */
     fun runNow(macro: Macro): Job? = launchMacro(macro, force = true)
 
-    private fun launchMacro(macro: Macro, force: Boolean): Job? {
+    /**
+     * 알람이 깨웠을 때, 적어 둔 단계부터 이어서 한다.
+     *
+     * 30분이 지났다. "아직 붙어 있으면 중단" 같은 조건을 낡은 기억으로 견주면 안 되므로,
+     * 이어가기 전에 지금 붙어 있는 것이 무엇인지 먼저 다시 묻는다.
+     */
+    fun resume(macro: Macro, fromIndex: Int) {
+        scope.launch {
+            syncConnectedQuietly()
+            launchMacro(macro, force = false, fromIndex = fromIndex)
+        }
+    }
+
+    /** 붙어 있는 기기 목록만 조용히 맞춘다. 매크로는 돌리지 않는다 */
+    private suspend fun syncConnectedQuietly() {
+        val now = suspendCancellableCoroutine<Set<String>> { slot ->
+            askConnectedDevices { found -> if (slot.isActive) slot.resume(found) {} }
+        }
+        connectedDevices.clear()
+        connectedDevices += now
+        seeded = true
+    }
+
+    private fun launchMacro(macro: Macro, force: Boolean, fromIndex: Int = 0): Job? {
         if (running[macro.id]?.isActive == true) return null
         val job = scope.launch {
             EngineState.markRunning(macro.id, true)
             Log.i(TAG, "실행: ${macro.name}")
-            RunLog.add(if (force) "▶ ${macro.name} · 지금 실행" else "▶ ${macro.name}")
+            RunLog.add(
+                when {
+                    force -> "▶ ${macro.name} · 지금 실행"
+                    fromIndex > 0 -> "▶ ${macro.name} · 대기 뒤 이어서"
+                    else -> "▶ ${macro.name}"
+                }
+            )
             try {
-                for (action in macro.actions) {
+                var at = fromIndex
+                while (at < macro.actions.size) {
+                    val action = macro.actions[at]
+
+                    // 긴 대기는 알람에 맡기고 이 실행은 여기서 끝낸다.
+                    // 프로세스가 정리돼도 시각이 되면 시스템이 깨워 남은 단계를 이어간다
+                    if (!force && action is Action.Delay && action.seconds >= Alarms.HANDOFF_SECONDS) {
+                        handOff(macro, at + 1, action.seconds)
+                        break
+                    }
+
                     if (!runAction(action, force)) {
                         Log.i(TAG, "중단: ${macro.name}")
                         RunLog.add("■ 조건이 맞지 않아 멈춤 · ${macro.name}")
                         break
                     }
+                    at++
                 }
             } finally {
                 EngineState.markRunning(macro.id, false)
@@ -243,6 +399,14 @@ class MacroService : NotificationListenerService() {
         }
         running[macro.id] = job
         return job
+    }
+
+    /** 남은 단계를 적어 두고 알람을 건다 */
+    private fun handOff(macro: Macro, nextIndex: Int, seconds: Int) {
+        val dueAt = System.currentTimeMillis() + seconds * 1000L
+        PendingWaits.put(this, macro.id, nextIndex, dueAt)
+        Alarms.scheduleResume(this, macro.id, dueAt)
+        RunLog.add("${humanSeconds(seconds)} 뒤에 이어서 함 · ${macro.name}")
     }
 
     /** 액션 하나 실행. false를 주면 남은 액션을 실행하지 않는다 */

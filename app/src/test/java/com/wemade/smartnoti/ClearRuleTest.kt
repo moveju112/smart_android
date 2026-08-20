@@ -165,3 +165,19 @@ class ParticleTest {
         assertEquals("와", "".andParticle())
     }
 }
+
+/** 알람에 맡긴 대기를 적어 둔 줄 — 잘못 읽으면 30분 기다린 일이 엉뚱한 단계에서 이어진다 */
+class PendingWaitTest {
+
+    @Test
+    fun `남은 단계와 깨울 시각을 읽는다`() {
+        assertEquals(3 to 1787227208064L, parse("3:1787227208064"))
+    }
+
+    @Test
+    fun `형식이 깨졌으면 읽지 않는다`() {
+        assertNull(parse("3"))
+        assertNull(parse(""))
+        assertNull(parse("a:b"))
+    }
+}

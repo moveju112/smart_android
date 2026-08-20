@@ -121,6 +121,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        RunLog.attach(this)
         ThemeState.load(this)
         MacroStore.load(this)
         setContent { SmartNotiTheme { AppRoot(resumeTick) } }
@@ -257,6 +258,16 @@ private fun MacroListScreen(
 
     var menuOpen by remember { mutableStateOf(false) }
     val themeMode by ThemeState.mode.collectAsState()
+
+    // 블루투스 매크로를 쓰는데 권한이 없으면 조용히 안 걸린다. 그 조합만 짚어 둔다
+    val needsBluetooth = macros.any { macro ->
+        macro.enabled && macro.allTriggers().any { it is Trigger.Bluetooth }
+    }
+    val hasBluetooth = remember(resumeTick) {
+        Build.VERSION.SDK_INT < 31 ||
+            context.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) ==
+            PackageManager.PERMISSION_GRANTED
+    }
     var importReport by remember { mutableStateOf<ImportResult?>(null) }
     var showUpdate by remember { mutableStateOf(false) }
     var showNewMacro by remember { mutableStateOf(false) }
@@ -458,8 +469,22 @@ private fun MacroListScreen(
 
             // 권한이 없으면 이 앱은 아무것도 못 한다. 그때만 목록 위에 남는다
             if (!listenerEnabled) {
-                PermissionWarning {
-                    context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                TopWarning(
+                    title = "알림 접근 권한이 꺼져 있습니다",
+                    body = "권한을 켜야 알림을 읽고 지울 수 있습니다. 눌러서 설정으로 갑니다."
+                ) { context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
+            } else if (needsBluetooth && !hasBluetooth) {
+                // 블루투스 트리거는 이 권한 없이는 아무 말 없이 안 걸린다. 그래서 눈에 걸리게 둔다
+                TopWarning(
+                    title = "근처 기기 권한이 꺼져 있습니다",
+                    body = "블루투스로 켜고 끄는 매크로가 걸리지 않습니다. 눌러서 권한 화면으로 갑니다."
+                ) {
+                    context.startActivity(
+                        Intent(
+                            Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                            Uri.fromParts("package", context.packageName, null)
+                        )
+                    )
                 }
             }
           }
@@ -622,13 +647,13 @@ private fun FolderHeader(name: String, count: Int, collapsed: Boolean, onToggle:
 }
 
 /**
- * 권한이 꺼져 있다고 알리는 띠.
+ * 매크로가 돌 수 없는 상태라고 알리는 띠.
  *
  * 엔진이 도는지는 메뉴에서 본다. 잘 돌 때는 목록 위 자리를 비워 두는 것이 낫다.
- * 다만 권한이 없으면 이 앱은 아무 일도 하지 않으므로, 그때는 목록보다 먼저 눈에 걸려야 한다.
+ * 다만 권한이 없으면 켜 둔 매크로가 조용히 안 걸리므로, 그때는 목록보다 먼저 눈에 걸려야 한다.
  */
 @Composable
-private fun PermissionWarning(onOpenSettings: () -> Unit) {
+private fun TopWarning(title: String, body: String, onOpenSettings: () -> Unit) {
     val scheme = MaterialTheme.colorScheme
     Column(
         Modifier
@@ -640,18 +665,10 @@ private fun PermissionWarning(onOpenSettings: () -> Unit) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             StatusDot(false)
             Spacer(Modifier.width(8.dp))
-            Text(
-                "알림 접근 권한이 꺼져 있습니다",
-                style = MaterialTheme.typography.titleMedium,
-                color = scheme.onErrorContainer
-            )
+            Text(title, style = MaterialTheme.typography.titleMedium, color = scheme.onErrorContainer)
         }
         Spacer(Modifier.padding(top = 3.dp))
-        Text(
-            "권한을 켜야 알림을 읽고 지울 수 있습니다. 눌러서 설정으로 갑니다.",
-            style = MaterialTheme.typography.bodySmall,
-            color = scheme.onErrorContainer
-        )
+        Text(body, style = MaterialTheme.typography.bodySmall, color = scheme.onErrorContainer)
     }
     HorizontalDivider(color = scheme.outlineVariant)
 }
@@ -1193,6 +1210,9 @@ private fun ImportConfirmDialog(
 @Composable
 private fun RunLogScreen(onBack: () -> Unit) {
     val lines by RunLog.lines.collectAsState()
+    val today = remember {
+        java.time.LocalDate.now().format(java.time.format.DateTimeFormatter.ofPattern("MM-dd"))
+    }
     val peek by Diagnostics.peekNotifications.collectAsState()
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     Scaffold(
@@ -1244,7 +1264,8 @@ private fun RunLogScreen(onBack: () -> Unit) {
                     if (index > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                     Row(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
                         Text(
-                            line.substringBefore("  "),
+                            // 오늘 것은 시각만 보여 준다. 날짜는 어제 일과 섞일 때만 쓸모가 있다
+                            line.substringBefore("  ").removePrefix("$today "),
                             style = MonoSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
