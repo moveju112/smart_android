@@ -53,6 +53,7 @@ import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.FileUpload
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.LightMode
@@ -105,6 +106,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlinx.serialization.encodeToString
 import kotlinx.coroutines.Dispatchers
@@ -401,36 +403,29 @@ private fun MacroListScreen(
                             onClick = { menuOpen = false; openFile.launch(arrayOf("*/*")) }
                         )
                         HorizontalDivider()
-                        DropdownMenuItem(
-                            text = { Text("업데이트") },
-                            leadingIcon = { Icon(Icons.Default.Refresh, null) },
-                            onClick = {
-                                menuOpen = false
-                                showUpdate = true
-                                scope.launch { Updater.check(BuildConfig.VERSION_NAME) }
-                            }
-                        )
-                        HorizontalDivider()
-                        // 엔진이 도는지는 여기서 본다. 점이 숨쉬면 살아 있는 것이다
+                        // 엔진이 도는지는 여기서 본다. 상태를 말하는 것은 아래 글이고 점은 그 글을 거든다
                         DropdownMenuItem(
                             text = {
                                 Column {
                                     Text("실행 기록")
-                                    Text(
-                                        when {
-                                            !listenerEnabled -> "알림 접근 권한이 꺼져 있습니다"
-                                            !engineConnected -> "엔진 연결 중 · 매크로 ${macros.size}개"
-                                            else -> "켜져 있음 · 매크로 ${macros.size}개"
-                                        },
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        StatusDot(listenerEnabled && engineConnected, size = 7.dp)
+                                        Spacer(Modifier.width(6.dp))
+                                        Text(
+                                            when {
+                                                !listenerEnabled -> "알림 접근 권한이 꺼져 있습니다"
+                                                !engineConnected -> "엔진 연결 중 · 매크로 ${macros.size}개"
+                                                else -> "켜져 있음 · 매크로 ${macros.size}개"
+                                            },
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
                                 }
                             },
-                            leadingIcon = { StatusDot(listenerEnabled && engineConnected) },
+                            leadingIcon = { Icon(Icons.Default.History, null) },
                             onClick = { menuOpen = false; onOpenLog() }
                         )
-                        HorizontalDivider()
                         // 메뉴는 닫지 않는다. 누른 자리에서 화면 색이 바뀌는 것을 보고 고르게 한다
                         DropdownMenuItem(
                             text = { Text("화면 · ${themeMode.label}") },
@@ -445,6 +440,17 @@ private fun MacroListScreen(
                                 )
                             },
                             onClick = { ThemeState.cycle(context) }
+                        )
+                        HorizontalDivider()
+                        // 자주 쓰는 것이 위, 어쩌다 쓰는 것이 아래
+                        DropdownMenuItem(
+                            text = { Text("업데이트") },
+                            leadingIcon = { Icon(Icons.Default.Refresh, null) },
+                            onClick = {
+                                menuOpen = false
+                                showUpdate = true
+                                scope.launch { Updater.check(BuildConfig.VERSION_NAME) }
+                            }
                         )
                     }
                 }
@@ -652,7 +658,7 @@ private fun PermissionWarning(onOpenSettings: () -> Unit) {
 
 /** 살아 있으면 천천히 숨쉬는 점. 상태를 말하는 것은 옆의 글이고, 이 점은 그 글을 거드는 그림이다 */
 @Composable
-private fun StatusDot(live: Boolean) {
+private fun StatusDot(live: Boolean, size: Dp = 9.dp) {
     val breathing = live && !reduceMotion()
     val alpha by if (breathing) {
         rememberInfiniteTransition(label = "dot").animateFloat(
@@ -666,7 +672,7 @@ private fun StatusDot(live: Boolean) {
     }
     Box(
         Modifier
-            .size(9.dp)
+            .size(size)
             .clearAndSetSemantics { }
             .alpha(if (breathing) alpha else 1f)
             .background(
