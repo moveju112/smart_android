@@ -23,6 +23,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -245,4 +249,33 @@ fun QuietSwitch(checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
             uncheckedBorderColor = scheme.outline
         )
     )
+}
+
+
+/**
+ * 요약 문장을 그린다. 사람이 고른 값만 진하게 남는다.
+ *
+ * 문장 편집기는 채워진 칸에 색을 깔아 「이건 네가 정한 것」을 보여 준다. 한 줄 요약에는
+ * 칸을 깔 자리가 없으니 같은 뜻을 글자 무게와 잉크로 옮긴다 — 값은 진한 잉크에 Medium,
+ * 앱이 붙인 문법은 연한 잉크에 보통 무게.
+ *
+ * 색을 쓰지 않는 이유가 있다. 이 앱의 청록은 이미 「선택됨」과 「누를 수 있는 것」 두 뜻을
+ * 나눠 쓰고 있어서, 세 번째 뜻을 얹으면 색이 아무 말도 하지 않게 된다.
+ */
+@Composable
+fun List<Part>.styled(): AnnotatedString {
+    val scheme = MaterialTheme.colorScheme
+    return buildAnnotatedString {
+        this@styled.forEach { part ->
+            when (part) {
+                is Part.Value -> withStyle(
+                    SpanStyle(color = scheme.onSurface, fontWeight = FontWeight.Medium)
+                ) { append(part.text) }
+
+                is Part.Plain -> withStyle(
+                    SpanStyle(color = scheme.onSurfaceVariant)
+                ) { append(part.text) }
+            }
+        }
+    }
 }

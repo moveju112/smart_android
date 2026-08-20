@@ -165,7 +165,7 @@ fun MacroRail(
     triggerColor: Color,
     waitColor: Color,
     actColor: Color,
-    line: @Composable (index: Int, text: String) -> Unit
+    line: @Composable (index: Int, parts: List<Part>) -> Unit
 ) {
     val triggers = macro.allTriggers()
     val total = macro.actions.size + triggers.size
@@ -179,7 +179,11 @@ fun MacroRail(
                 lineColor = lineColor,
                 markerColor = triggerColor,
                 running = running
-            ) { line(-1, trigger.summary() + if (index < triggers.lastIndex) "  또는" else "") }
+            ) {
+                // 「또는」은 앱이 붙인 접속어다. 값과 같은 무게로 보이면 안 된다
+                val tail = if (index < triggers.lastIndex) listOf(Part.Plain("  또는")) else emptyList()
+                line(-1, trigger.parts() + tail)
+            }
         }
 
         macro.actions.forEachIndexed { index, action ->
@@ -191,7 +195,7 @@ fun MacroRail(
                 lineColor = lineColor,
                 markerColor = if (step == Step.Wait) waitColor else actColor,
                 running = running
-            ) { line(index, action.summary()) }
+            ) { line(index, action.parts()) }
         }
     }
 }

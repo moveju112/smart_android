@@ -168,28 +168,61 @@ sealed class Condition {
 }
 
 /** 조건 한 줄 요약 */
-fun Condition.summary(): String = when (this) {
-    is Condition.Bluetooth -> {
-        val device = deviceName.ifBlank { address.ifBlank { "기기" } }
-        "$device 가 " + (if (connected) "붙어 있을 때만" else "끊겨 있을 때만")
-    }
-    is Condition.Wifi -> "와이파이에 " + (if (connected) "붙어 있을 때만" else "붙어 있지 않을 때만")
-    is Condition.TimeRange ->
-        "${clockText(fromMinute)}~${clockText(toMinute)}" + (if (inside) " 사이일 때만" else " 를 벗어났을 때만")
-    is Condition.Battery -> buildString {
-        append("배터리 $atLeast~$atMost%")
+/**
+ * 요약 문장의 한 토막.
+ *
+ * 이 앱의 요약은 「Tesla Model Y Why 블루투스 해제」처럼 사람이 고른 값과 앱이 붙인 문법이
+ * 섞여 있다. 두 가지가 같은 무게로 보이면 자기가 정한 것이 무엇인지 알아보기 어렵다.
+ * 문장 편집기는 채워진 칸에 색을 깔아 그 구별을 보여 주는데, 한 줄 요약에는 그럴 자리가 없다.
+ * 그래서 토막으로 나눠 내보내고, 그리는 쪽이 값만 진하게 쓴다.
+ *
+ * 문자열이 아니라 토막을 정본으로 둔다 — summary()가 이걸 이어 붙여 만들어지므로
+ * 둘이 어긋날 수 없다.
+ */
+sealed interface Part {
+    val text: String
+
+    /** 앱이 붙인 문법 — 「블루투스 해제」, 「알림 삭제」 */
+    data class Plain(override val text: String) : Part
+
+    /** 사람이 고르거나 적은 값 — 기기 이름, 앱 이름, 문구, 시간 */
+    data class Value(override val text: String) : Part
+}
+
+/** 토막을 이어 한 줄로. 화면에 색을 못 쓰는 자리와 검사에서 쓴다 */
+fun List<Part>.flat(): String = joinToString("") { it.text }
+
+fun Condition.parts(): List<Part> = when (this) {
+    is Condition.Bluetooth -> listOf(
+        Part.Value(deviceName.ifBlank { address.ifBlank { "기기" } }),
+        Part.Plain(" 가 " + if (connected) "붙어 있을 때만" else "끊겨 있을 때만")
+    )
+    is Condition.Wifi -> listOf(
+        Part.Plain("와이파이에 " + if (connected) "붙어 있을 때만" else "붙어 있지 않을 때만")
+    )
+    is Condition.TimeRange -> listOf(
+        Part.Value("${clockText(fromMinute)}~${clockText(toMinute)}"),
+        Part.Plain(if (inside) " 사이일 때만" else " 를 벗어났을 때만")
+    )
+    is Condition.Battery -> buildList {
+        add(Part.Plain("배터리 "))
+        add(Part.Value("$atLeast~$atMost%"))
         when (charging) {
-            true -> append(", 충전 중")
-            false -> append(", 충전 중이 아닐 때")
+            true -> add(Part.Plain(", 충전 중"))
+            false -> add(Part.Plain(", 충전 중이 아닐 때"))
             null -> {}
         }
-        append("일 때만")
+        add(Part.Plain("일 때만"))
     }
-    is Condition.Place -> {
-        val place = label.ifBlank { "정한 자리" }
-        "$place 에서 ${radiusMeters}m " + (if (inside) "안일 때만" else "밖일 때만")
-    }
+    is Condition.Place -> listOf(
+        Part.Value(label.ifBlank { "정한 자리" }),
+        Part.Plain(" 에서 "),
+        Part.Value("${radiusMeters}m"),
+        Part.Plain(if (inside) " 안일 때만" else " 밖일 때만")
+    )
 }
+
+fun Condition.summary(): String = parts().flat()
 
 /** 분을 시:분으로 */
 fun clockText(minuteOfDay: Int): String {
@@ -254,12 +287,20 @@ fun Macro.withClearRule(rule: ClearRule): Macro = withTriggers(
 )
 
 /** 목록에 뿌릴 한 줄 — 어느 앱의 무슨 문구를 언제 지우는지 */
-fun ClearRule.summary(): String {
-    val app = appLabel.ifBlank { packageName.ifBlank { "모든 앱" } }
-    val what = if (text.isBlank()) "알림 전부" else "\u201C$text\u201D"
-    val when_ = if (seconds > 0) "${humanSeconds(seconds)} 뒤" else "바로"
-    return "$app · $what · $when_ 지움"
+fun ClearRule.parts(): List<Part> = buildList {
+    add(Part.Value(appLabel.ifBlank { packageName.ifBlank { "모든 앱" } }))
+    add(Part.Plain(" · "))
+    if (text.isBlank()) add(Part.Plain("알림 전부")) else add(Part.Value("\u201C$text\u201D"))
+    add(Part.Plain(" · "))
+    if (seconds > 0) {
+        add(Part.Value(humanSeconds(seconds)))
+        add(Part.Plain(" 뒤 지움"))
+    } else {
+        add(Part.Plain("바로 지움"))
+    }
 }
+
+fun ClearRule.summary(): String = parts().flat()
 
 /**
  * 이 매크로가 무엇을 하는지 한 줄로.
@@ -307,31 +348,45 @@ fun matchesText(needle: String, vararg haystack: String?): Boolean =
     matchesText(needle, haystack.toList())
 
 /** 매크로 목록 화면에 뿌릴 한 줄 요약 */
-fun Trigger.summary(): String = when (this) {
-    is Trigger.Notification -> {
-        val app = appLabel.ifBlank { packageName.ifBlank { "모든 앱" } }
-        if (text.isBlank()) "$app 알림" else "$app 알림 \u201C$text\u201D"
+fun Trigger.parts(): List<Part> = when (this) {
+    is Trigger.Notification -> buildList {
+        add(Part.Value(appLabel.ifBlank { packageName.ifBlank { "모든 앱" } }))
+        add(Part.Plain(" 알림"))
+        if (text.isNotBlank()) {
+            add(Part.Plain(" "))
+            add(Part.Value("\u201C$text\u201D"))
+        }
     }
-    is Trigger.Bluetooth -> {
-        val device = deviceName.ifBlank { address.ifBlank { "모든 기기" } }
-        "$device 블루투스 " + if (connected) "연결" else "해제"
-    }
-    is Trigger.Wifi -> "와이파이 " + if (connected) "연결" else "해제"
+    is Trigger.Bluetooth -> listOf(
+        Part.Value(deviceName.ifBlank { address.ifBlank { "모든 기기" } }),
+        Part.Plain(" 블루투스 " + if (connected) "연결" else "해제")
+    )
+    is Trigger.Wifi -> listOf(Part.Plain("와이파이 " + if (connected) "연결" else "해제"))
 }
 
-fun Action.summary(): String = when (this) {
-    is Action.ClearNotification -> {
-        val app = appLabel.ifBlank { packageName.ifBlank { "모든 앱" } }
-        if (text.isBlank()) "$app 알림 삭제" else "$app 알림 삭제 \u201C$text\u201D"
+fun Trigger.summary(): String = parts().flat()
+
+fun Action.parts(): List<Part> = when (this) {
+    is Action.ClearNotification -> buildList {
+        add(Part.Value(appLabel.ifBlank { packageName.ifBlank { "모든 앱" } }))
+        add(Part.Plain(" 알림 삭제"))
+        if (text.isNotBlank()) {
+            add(Part.Plain(" "))
+            add(Part.Value("\u201C$text\u201D"))
+        }
     }
-    is Action.Broadcast -> broadcastSummary()
-    is Action.Delay -> if (seconds <= 0) "기다리지 않음" else "${humanSeconds(seconds)} 대기"
-    is Action.StopIfBluetooth -> {
-        val device = deviceName.ifBlank { address.ifBlank { "기기" } }
-        "$device " + (if (connected) "연결됐으면" else "끊겼으면") + " 중단"
-    }
-    is Action.StopUnless -> condition.summary()
+    is Action.Broadcast -> broadcastParts()
+    is Action.Delay ->
+        if (seconds <= 0) listOf(Part.Plain("기다리지 않음"))
+        else listOf(Part.Value(humanSeconds(seconds)), Part.Plain(" 대기"))
+    is Action.StopIfBluetooth -> listOf(
+        Part.Value(deviceName.ifBlank { address.ifBlank { "기기" } }),
+        Part.Plain(" " + (if (connected) "연결됐으면" else "끊겼으면") + " 중단")
+    )
+    is Action.StopUnless -> condition.parts()
 }
+
+fun Action.summary(): String = parts().flat()
 
 /**
  * 이름 뒤에 붙일 조사 — 받침이 있으면 "과", 없으면 "와".
@@ -472,12 +527,20 @@ fun isSecretExtra(extraName: String): Boolean {
 }
 
 /** 사람이 읽는 브로드캐스트 한 줄. 아는 것이면 무엇을 하는지로, 모르면 액션 이름으로 */
-private fun Action.Broadcast.broadcastSummary(): String {
-    // 비밀값은 목록에도 내보내지 않는다
-    val tail = if (extraValue.isNotBlank() && !isSecretExtra(extraName)) " · $extraValue" else ""
+private fun Action.Broadcast.broadcastParts(): List<Part> = buildList {
     val known = broadcastPresets.firstOrNull { matches(it) }
-    if (known != null) return known.label + tail
-    return "브로드캐스트 " + action.ifBlank { className.ifBlank { packageName } } + tail
+    if (known != null) {
+        // 프리셋 이름은 앱이 붙인 말이다. 사람이 정한 것은 그 뒤의 값 하나뿐이다
+        add(Part.Plain(known.label))
+    } else {
+        add(Part.Plain("브로드캐스트 "))
+        add(Part.Value(action.ifBlank { className.ifBlank { packageName } }))
+    }
+    // 비밀값은 목록에도 내보내지 않는다
+    if (extraValue.isNotBlank() && !isSecretExtra(extraName)) {
+        add(Part.Plain(" · "))
+        add(Part.Value(extraValue))
+    }
 }
 
 

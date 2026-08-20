@@ -385,3 +385,66 @@ class BroadcastSummaryTest {
         assertEquals("WireGuard 터널 켜기", up.summary())
     }
 }
+
+/**
+ * 요약을 토막으로 나누는 일.
+ * 사람이 고른 값과 앱이 붙인 문법을 가르는 기준이 흔들리면 화면에서 강조가 엉뚱해진다.
+ */
+class PartsTest {
+
+    private fun values(parts: List<Part>) = parts.filterIsInstance<Part.Value>().map { it.text }
+
+    @Test
+    fun `이어 붙이면 예전 요약과 같다`() {
+        val trigger = Trigger.Bluetooth("0C:29:8F:73:C7:F5", "Tesla Model Y Why", connected = false)
+        assertEquals("Tesla Model Y Why 블루투스 해제", trigger.summary())
+        assertEquals("Tesla Model Y Why 블루투스 해제", trigger.parts().flat())
+    }
+
+    @Test
+    fun `기기 이름만 값이다`() {
+        val trigger = Trigger.Bluetooth("0C:29:8F:73:C7:F5", "Tesla Model Y Why", connected = false)
+        assertEquals(listOf("Tesla Model Y Why"), values(trigger.parts()))
+    }
+
+    @Test
+    fun `와이파이는 고른 값이 없다`() {
+        assertEquals(emptyList<String>(), values(Trigger.Wifi().parts()))
+    }
+
+    @Test
+    fun `알림 트리거는 앱과 문구가 값이다`() {
+        val trigger = Trigger.Notification("viva.republica.toss", "토스", "결제")
+        assertEquals(listOf("토스", "“결제”"), values(trigger.parts()))
+    }
+
+    @Test
+    fun `대기 시간은 값이고 대기라는 말은 문법이다`() {
+        val parts = Action.Delay(1800).parts()
+        assertEquals(listOf("30분"), values(parts))
+        assertEquals("30분 대기", parts.flat())
+    }
+
+    @Test
+    fun `프리셋 이름은 앱의 말, 터널 이름만 값이다`() {
+        val up = Action.Broadcast()
+            .withPreset(broadcastPresets.first { it.label == "WireGuard 터널 켜기" })
+            .copy(extraValue = "home-server")
+        assertEquals(listOf("home-server"), values(up.parts()))
+    }
+
+    @Test
+    fun `비밀값은 토막에도 나오지 않는다`() {
+        val ad = Action.Broadcast()
+            .withPreset(broadcastPresets.first { it.label == "AdGuard 보호 끄기" })
+            .copy(extraValue = "hunter2")
+        assertEquals(emptyList<String>(), values(ad.parts()))
+        assertEquals("AdGuard 보호 끄기", ad.parts().flat())
+    }
+
+    @Test
+    fun `모르는 브로드캐스트는 액션 이름이 값이다`() {
+        val other = Action.Broadcast(packageName = "com.example.x", action = "GO")
+        assertEquals(listOf("GO"), values(other.parts()))
+    }
+}

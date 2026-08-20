@@ -604,7 +604,7 @@ private fun LazyListScope.advancedSections(
                     mark = Step.Trigger,
                     accent = MaterialTheme.colorScheme.primary,
                     order = if (triggers.size > 1) "${index + 1}" else null,
-                    summary = trigger.summary(),
+                    summary = trigger.parts(),
                     opened = open == key,
                     onToggle = { onOpen(if (open == key) null else key) },
                     onRemove = if (triggers.size > 1) {
@@ -744,7 +744,7 @@ private fun ActionCard(
             mark = action.step(),
             accent = accent,
             order = "${index + 1}",
-            summary = action.summary(),
+            summary = action.parts(),
             opened = opened,
             onToggle = onToggle,
             onRemove = onRemove,
@@ -775,7 +775,7 @@ private fun FoldedPiece(
     mark: Step,
     accent: Color,
     order: String?,
-    summary: String,
+    summary: List<Part>,
     opened: Boolean,
     onToggle: () -> Unit,
     onRemove: (() -> Unit)? = null,
@@ -805,10 +805,10 @@ private fun FoldedPiece(
                 Spacer(Modifier.width(7.dp))
             }
             // 접혀 있을 때 이 줄이 내용의 전부다. 종류가 아니라 무엇을 하는지 적는다
+            // 접혀 있을 때 이 줄이 내용의 전부다. 사람이 정한 값만 진하게 남는다
             Text(
-                summary,
+                summary.styled(),
                 style = MaterialTheme.typography.bodyMedium,
-                color = scheme.onSurface,
                 maxLines = if (opened) 2 else 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f)
@@ -1239,7 +1239,7 @@ private fun ConditionEditor(condition: Condition, onChange: (Condition) -> Unit)
             }
             // 자정을 넘기는 구간도 그대로 받는다 (23:00~07:00)
             Text(
-                condition.summary(),
+                condition.parts().styled(),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

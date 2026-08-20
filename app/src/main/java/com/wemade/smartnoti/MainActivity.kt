@@ -929,9 +929,8 @@ private fun MacroCard(
                             markerColor = scheme.primary
                         ) {
                             Text(
-                                rule.summary(),
+                                rule.parts().styled(),
                                 style = MaterialTheme.typography.bodySmall,
-                                color = scheme.onSurfaceVariant,
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -944,9 +943,9 @@ private fun MacroCard(
                             triggerColor = scheme.primary,
                             waitColor = scheme.secondary,
                             actColor = scheme.onSurfaceVariant
-                        ) { _, text ->
+                        ) { _, parts ->
                             Text(
-                                text,
+                                parts.styled(),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = scheme.onSurfaceVariant,
                                 maxLines = 1,
