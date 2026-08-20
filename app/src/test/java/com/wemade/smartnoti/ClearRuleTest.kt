@@ -248,3 +248,74 @@ class StatusLineTest {
         assertNull(parseEntry("Failed"))
     }
 }
+
+/**
+ * 브로드캐스트 프리셋과 비밀값 가리기.
+ * 이 앱이 하는 일의 절반이 브로드캐스트인데 한 글자만 달라도 조용히 버려진다.
+ */
+class BroadcastPresetTest {
+
+    @Test
+    fun `프리셋이 네 칸을 채운다`() {
+        val empty = Action.Broadcast()
+        val up = empty.withPreset(broadcastPresets.first { it.label == "WireGuard 터널 켜기" })
+
+        assertEquals(WIREGUARD_PACKAGE, up.packageName)
+        assertEquals(WIREGUARD_RECEIVER, up.className)
+        assertEquals("com.wireguard.android.action.SET_TUNNEL_UP", up.action)
+        assertEquals("tunnel", up.extraName)
+        assertEquals("", up.extraValue)
+    }
+
+    @Test
+    fun `켜기에서 끄기로 바꿔도 터널 이름은 남는다`() {
+        val up = Action.Broadcast()
+            .withPreset(broadcastPresets.first { it.label == "WireGuard 터널 켜기" })
+            .copy(extraValue = "home-server")
+        val down = up.withPreset(broadcastPresets.first { it.label == "WireGuard 터널 끄기" })
+
+        assertEquals("home-server", down.extraValue)
+        assertEquals("com.wireguard.android.action.SET_TUNNEL_DOWN", down.action)
+    }
+
+    @Test
+    fun `추가값 이름이 다르면 값을 옮기지 않는다`() {
+        val wireGuard = Action.Broadcast()
+            .withPreset(broadcastPresets.first { it.label == "WireGuard 터널 켜기" })
+            .copy(extraValue = "home-server")
+        val adGuard = wireGuard.withPreset(broadcastPresets.first { it.label == "AdGuard 보호 켜기" })
+
+        assertEquals("", adGuard.extraValue)
+    }
+
+    @Test
+    fun `비밀번호로 보이는 이름을 알아본다`() {
+        assertEquals(true, isSecretExtra("password"))
+        assertEquals(true, isSecretExtra("PASSWORD"))
+        assertEquals(true, isSecretExtra("api_token"))
+        assertEquals(false, isSecretExtra("tunnel"))
+        assertEquals(false, isSecretExtra(""))
+    }
+
+    @Test
+    fun `아는 브로드캐스트는 사람 말로 요약한다`() {
+        val up = Action.Broadcast()
+            .withPreset(broadcastPresets.first { it.label == "WireGuard 터널 켜기" })
+            .copy(extraValue = "home-server")
+        assertEquals("WireGuard 터널 켜기 · home-server", up.summary())
+    }
+
+    @Test
+    fun `비밀값은 요약에도 내보내지 않는다`() {
+        val adGuard = Action.Broadcast()
+            .withPreset(broadcastPresets.first { it.label == "AdGuard 보호 끄기" })
+            .copy(extraValue = "q3yXS")
+        assertEquals("AdGuard 보호 끄기", adGuard.summary())
+    }
+
+    @Test
+    fun `모르는 브로드캐스트는 액션 이름으로 남는다`() {
+        val other = Action.Broadcast(packageName = "com.example.x", action = "GO")
+        assertEquals("브로드캐스트 GO", other.summary())
+    }
+}

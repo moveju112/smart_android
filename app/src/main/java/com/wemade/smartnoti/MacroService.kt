@@ -469,13 +469,7 @@ class MacroService : NotificationListenerService() {
             }
 
             is Action.Broadcast -> {
-                val intent = Intent(action.action.ifBlank { null })
-                if (action.packageName.isNotBlank() && action.className.isNotBlank()) {
-                    intent.setClassName(action.packageName, action.className)
-                } else if (action.packageName.isNotBlank()) {
-                    intent.setPackage(action.packageName)
-                }
-                if (action.extraName.isNotBlank()) intent.putExtra(action.extraName, action.extraValue)
+                val intent = broadcastIntent(action)
 
                 // 무엇을 보내는지 그대로 남긴다. 터널 이름 한 글자가 달라도 아무 일이 일어나지 않는다
                 val what = buildString {
@@ -486,7 +480,7 @@ class MacroService : NotificationListenerService() {
                 }
 
                 // 보내기 전에 막힐 자리를 먼저 본다. 보내고 나면 실패해도 알 길이 없다
-                val blocked = broadcastBlockedReason(action, intent)
+                val blocked = broadcastBlockedReason(this, action)
                 if (blocked != null) {
                     RunLog.add("브로드캐스트 보내지 못함 · $blocked")
                     Log.w(TAG, "브로드캐스트 막힘: $blocked")
@@ -504,30 +498,6 @@ class MacroService : NotificationListenerService() {
             }
         }
         return true
-    }
-
-    /**
-     * 보내도 아무 일이 없을 자리를 미리 짚는다.
-     *
-     * 브로드캐스트는 받는 쪽 사정으로 조용히 버려진다 — 리시버 이름이 틀렸거나, 그 쪽이 걸어 둔
-     * 권한이 없거나. 어느 쪽이든 예외가 나지 않아서 "보냈다"는 기록만 남고 끝난다.
-     */
-    private fun broadcastBlockedReason(action: Action.Broadcast, intent: Intent): String? {
-        // 1. 받을 리시버가 실제로 있는지
-        val targets = runCatching { packageManager.queryBroadcastReceivers(intent, 0) }.getOrDefault(emptyList())
-        if (targets.isEmpty()) {
-            return if (action.className.isNotBlank())
-                "받을 곳이 없습니다 · ${action.packageName}/${action.className} 이 맞는지 확인하세요"
-            else
-                "받을 곳이 없습니다 · ${action.packageName} 이 깔려 있는지 확인하세요"
-        }
-
-        // 2. 그 리시버가 요구하는 권한을 우리가 받았는지
-        val needed = targets.firstNotNullOfOrNull { it.activityInfo?.permission }
-        if (needed != null && checkSelfPermission(needed) != PackageManager.PERMISSION_GRANTED) {
-            return "권한이 없습니다 · $needed · 앱을 열면 물어봅니다. 이미 거부했다면 안드로이드 설정 → 앱 → 권한에서 켜세요"
-        }
-        return null
     }
 
     companion object {
@@ -558,4 +528,54 @@ private fun StatusBarNotification.allTexts(): List<String> {
         .map { it.trim() }
         .filter { it.isNotEmpty() }
         .distinct()
+}
+
+
+/**
+ * 브로드캐스트 하나를 인텐트로 만든다.
+ *
+ * 엔진과 편집 화면이 같은 인텐트를 봐야 한다. 편집 화면이 다르게 만들면
+ * "지금은 괜찮다"고 말한 뒤 실제로는 막히는 일이 생긴다.
+ */
+internal fun broadcastIntent(action: Action.Broadcast): Intent {
+    val intent = Intent(action.action.ifBlank { null })
+    if (action.packageName.isNotBlank() && action.className.isNotBlank()) {
+        intent.setClassName(action.packageName, action.className)
+    } else if (action.packageName.isNotBlank()) {
+        intent.setPackage(action.packageName)
+    }
+    if (action.extraName.isNotBlank()) intent.putExtra(action.extraName, action.extraValue)
+    return intent
+}
+
+/**
+ * 보내도 아무 일이 없을 자리를 미리 짚는다.
+ *
+ * 브로드캐스트는 받는 쪽 사정으로 조용히 버려진다 — 리시버 이름이 틀렸거나, 그 쪽이 걸어 둔
+ * 권한이 없거나. 어느 쪽이든 예외가 나지 않아서 "보냈다"는 기록만 남고 끝난다.
+ * 그래서 실행할 때도 이걸 보고, 만들 때도 이걸 본다.
+ */
+internal fun broadcastBlockedReason(context: Context, action: Action.Broadcast): String? {
+    if (action.action.isBlank() && action.packageName.isBlank()) return null   // 아직 안 적은 것은 짚지 않는다
+    val intent = broadcastIntent(action)
+
+    // 1. 받을 리시버가 실제로 있는지
+    val targets = runCatching {
+        context.packageManager.queryBroadcastReceivers(intent, 0)
+    }.getOrDefault(emptyList())
+    if (targets.isEmpty()) {
+        return if (action.className.isNotBlank())
+            "받을 곳이 없습니다 · ${action.packageName}/${action.className} 이 맞는지 확인하세요"
+        else
+            "받을 곳이 없습니다 · ${action.packageName} 이 깔려 있는지 확인하세요"
+    }
+
+    // 2. 그 리시버가 요구하는 권한을 우리가 받았는지
+    val needed = targets.firstNotNullOfOrNull { it.activityInfo?.permission }
+    if (needed != null &&
+        context.checkSelfPermission(needed) != PackageManager.PERMISSION_GRANTED
+    ) {
+        return "권한이 없습니다 · $needed · 앱을 열면 물어봅니다. 이미 거부했다면 안드로이드 설정 → 앱 → 권한에서 켜세요"
+    }
+    return null
 }

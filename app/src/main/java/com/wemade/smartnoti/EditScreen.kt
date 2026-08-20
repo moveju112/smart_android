@@ -34,6 +34,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Close
@@ -76,6 +78,9 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.semantics.Role
 
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import kotlinx.serialization.encodeToString
 import kotlinx.coroutines.Dispatchers
@@ -876,6 +881,9 @@ private fun ActionEditor(action: Action, onChange: (Action) -> Unit) {
         }
 
         is Action.Broadcast -> {
+            // 아는 것은 앱이 채운다. 손으로 적을 값은 하나만 남긴다
+            BroadcastPresetRow(action) { onChange(action.withPreset(it)) }
+
             OutlinedTextField(
                 value = action.action,
                 onValueChange = { onChange(action.copy(action = it)) },
@@ -903,13 +911,13 @@ private fun ActionEditor(action: Action, onChange: (Action) -> Unit) {
                     label = { Text("추가값 이름") },
                     singleLine = true, modifier = Modifier.weight(1f)
                 )
-                OutlinedTextField(
+                SecretField(
                     value = action.extraValue,
-                    onValueChange = { onChange(action.copy(extraValue = it)) },
-                    label = { Text("추가값") },
-                    singleLine = true, modifier = Modifier.weight(1f)
-                )
+                    secret = isSecretExtra(action.extraName),
+                    modifier = Modifier.weight(1f)
+                ) { onChange(action.copy(extraValue = it)) }
             }
+
             // WireGuard는 이름이 한 글자만 달라도 아무 일 없이 끝난다. 만들 때 짚어 준다
             if (action.packageName == WIREGUARD_PACKAGE) {
                 Text(
@@ -919,8 +927,99 @@ private fun ActionEditor(action: Action, onChange: (Action) -> Unit) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
+
+            // 저장한 뒤 실행 기록에서 알게 되던 것을 지금 짚는다
+            BroadcastBlockedNote(action)
         }
     }
+}
+
+/**
+ * 자주 쓰는 브로드캐스트를 한 번에 채우는 줄.
+ *
+ * 지금 값과 같은 일을 하는 것은 눌린 채로 보인다. 켜기↔끄기를 바꿔도 이미 적어 둔
+ * 터널 이름이나 비밀번호는 남는다 — 같은 칸을 두 번 적게 하지 않으려는 것이다.
+ */
+@Composable
+private fun BroadcastPresetRow(action: Action.Broadcast, onPick: (BroadcastPreset) -> Unit) {
+    val picked = broadcastPresets.firstOrNull { action.matches(it) }
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(
+            "아는 것부터 고르세요",
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        // 두 줄로 나눈다. 한 줄에 네 개를 밀어 넣으면 글자가 잘린다
+        broadcastPresets.chunked(2).forEach { pair ->
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                pair.forEach { preset ->
+                    ChoiceChip(preset.label, preset === picked, Modifier.weight(1f)) { onPick(preset) }
+                }
+                if (pair.size == 1) Spacer(Modifier.weight(1f))
+            }
+        }
+        picked?.let {
+            Text(
+                it.hint,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+/**
+ * 비밀일 수 있는 값을 적는 칸.
+ *
+ * AdGuard 자동화는 비밀번호를 브로드캐스트로 받는다. 그 값이 화면에 평문으로 찍히고 있었다.
+ * 가려 두되 눈 버튼으로 볼 수 있게 한다 — 잘못 적었는지 확인할 길은 있어야 한다.
+ */
+@Composable
+private fun SecretField(
+    value: String,
+    secret: Boolean,
+    modifier: Modifier = Modifier,
+    onChange: (String) -> Unit
+) {
+    var shown by remember { mutableStateOf(false) }
+    val hide = secret && !shown
+    OutlinedTextField(
+        value = value,
+        onValueChange = onChange,
+        label = { Text("추가값") },
+        singleLine = true,
+        visualTransformation = if (hide) PasswordVisualTransformation() else VisualTransformation.None,
+        trailingIcon = if (!secret) null else {
+            {
+                IconButton(onClick = { shown = !shown }) {
+                    Icon(
+                        if (shown) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                        contentDescription = if (shown) "가리기" else "보기"
+                    )
+                }
+            }
+        },
+        modifier = modifier
+    )
+}
+
+/**
+ * 이 브로드캐스트가 지금 막힐 이유를 저장 전에 알려 준다.
+ *
+ * 엔진이 실행할 때 쓰는 것과 같은 판정을 쓴다. 다르게 판정하면 "괜찮다"고 말한 뒤
+ * 실제로는 조용히 버려지는, 가장 나쁜 종류의 거짓말이 된다.
+ */
+@Composable
+private fun BroadcastBlockedNote(action: Action.Broadcast) {
+    val context = LocalContext.current
+    val reason = remember(action.packageName, action.className, action.action) {
+        broadcastBlockedReason(context, action)
+    } ?: return
+    Text(
+        reason,
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.error
+    )
 }
 
 /**

@@ -6,6 +6,9 @@ import kotlinx.serialization.json.Json
 /** WireGuard 터널을 켜고 끄려면 그 앱이 정한 권한이 있어야 브로드캐스트가 전달된다 */
 const val WIREGUARD_PACKAGE = "com.wireguard.android"
 const val WIREGUARD_PERMISSION = "com.wireguard.android.permission.CONTROL_TUNNELS"
+const val WIREGUARD_RECEIVER = "com.wireguard.android.model.TunnelManager\$IntentReceiver"
+const val ADGUARD_PACKAGE = "com.adguard.android"
+const val ADGUARD_RECEIVER = "com.adguard.android.receiver.AutomationReceiver"
 
 /** 화면을 돌릴 때 편집 중인 매크로를 잠깐 접어 두는 데 쓴다 */
 internal val macroJson = Json { ignoreUnknownKeys = true }
@@ -321,7 +324,7 @@ fun Action.summary(): String = when (this) {
         val app = appLabel.ifBlank { packageName.ifBlank { "모든 앱" } }
         if (text.isBlank()) "$app 알림 삭제" else "$app 알림 삭제 \u201C$text\u201D"
     }
-    is Action.Broadcast -> "브로드캐스트 " + action.ifBlank { className.ifBlank { packageName } }
+    is Action.Broadcast -> broadcastSummary()
     is Action.Delay -> if (seconds <= 0) "기다리지 않음" else "${humanSeconds(seconds)} 대기"
     is Action.StopIfBluetooth -> {
         val device = deviceName.ifBlank { address.ifBlank { "기기" } }
@@ -393,4 +396,86 @@ private fun whenParts(nowMillis: Long, atMillis: Long): Pair<String, String> {
         now.plusDays(1) -> "내일" to clock
         else -> "" to (at.format(java.time.format.DateTimeFormatter.ofPattern("MM-dd")) + " " + clock)
     }
+}
+
+
+/**
+ * 자주 쓰는 브로드캐스트.
+ *
+ * 이 앱이 하는 일의 절반이 브로드캐스트인데, 지금까지는 네 칸을 손으로 적어 넣어야 했다.
+ * 한 글자만 달라도 신호는 조용히 버려지고, 참고할 곳은 이 저장소의 README뿐이었다.
+ * 아는 것은 앱이 채우고, 사람은 자기만 아는 값 하나만 적게 한다.
+ */
+data class BroadcastPreset(
+    val label: String,
+    val hint: String,
+    val action: Action.Broadcast
+)
+
+val broadcastPresets = listOf(
+    BroadcastPreset(
+        "WireGuard 터널 켜기", "터널 이름만 적으면 됩니다",
+        Action.Broadcast(
+            packageName = WIREGUARD_PACKAGE,
+            className = WIREGUARD_RECEIVER,
+            action = "com.wireguard.android.action.SET_TUNNEL_UP",
+            extraName = "tunnel"
+        )
+    ),
+    BroadcastPreset(
+        "WireGuard 터널 끄기", "터널 이름만 적으면 됩니다",
+        Action.Broadcast(
+            packageName = WIREGUARD_PACKAGE,
+            className = WIREGUARD_RECEIVER,
+            action = "com.wireguard.android.action.SET_TUNNEL_DOWN",
+            extraName = "tunnel"
+        )
+    ),
+    BroadcastPreset(
+        "AdGuard 보호 켜기", "AdGuard 자동화 비밀번호를 적으세요",
+        Action.Broadcast(
+            packageName = ADGUARD_PACKAGE,
+            className = ADGUARD_RECEIVER,
+            action = "start",
+            extraName = "password"
+        )
+    ),
+    BroadcastPreset(
+        "AdGuard 보호 끄기", "AdGuard 자동화 비밀번호를 적으세요",
+        Action.Broadcast(
+            packageName = ADGUARD_PACKAGE,
+            className = ADGUARD_RECEIVER,
+            action = "stop",
+            extraName = "password"
+        )
+    )
+)
+
+/** 프리셋을 지금 값에 얹는다. 추가값 이름이 같으면 이미 적어 둔 값은 남긴다 — 켜기↔끄기를 바꿔도 터널 이름은 그대로다 */
+fun Action.Broadcast.withPreset(preset: BroadcastPreset): Action.Broadcast =
+    preset.action.copy(extraValue = if (preset.action.extraName == extraName) extraValue else "")
+
+/** 지금 값이 이 프리셋과 같은 일을 하는지 */
+fun Action.Broadcast.matches(preset: BroadcastPreset): Boolean =
+    packageName == preset.action.packageName && action == preset.action.action
+
+/**
+ * 추가값 이름이 비밀을 뜻하는지.
+ *
+ * AdGuard 자동화는 비밀번호를 브로드캐스트로 받는다. 그 값이 편집 화면과 목록에 평문으로
+ * 찍히고 있었다 — 화면을 남에게 보여 주는 순간 새어 나간다.
+ */
+fun isSecretExtra(extraName: String): Boolean {
+    val name = extraName.lowercase()
+    return listOf("password", "passwd", "pass", "pw", "secret", "token", "key", "pin")
+        .any { name.contains(it) }
+}
+
+/** 사람이 읽는 브로드캐스트 한 줄. 아는 것이면 무엇을 하는지로, 모르면 액션 이름으로 */
+private fun Action.Broadcast.broadcastSummary(): String {
+    // 비밀값은 목록에도 내보내지 않는다
+    val tail = if (extraValue.isNotBlank() && !isSecretExtra(extraName)) " · $extraValue" else ""
+    val known = broadcastPresets.firstOrNull { matches(it) }
+    if (known != null) return known.label + tail
+    return "브로드캐스트 " + action.ifBlank { className.ifBlank { packageName } } + tail
 }
