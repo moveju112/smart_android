@@ -48,6 +48,11 @@ object MacroStore {
         save(context, list)
     }
 
+    /** 여러 매크로를 한 폴더로 한꺼번에 옮긴다. 파일은 한 번만 쓴다 */
+    fun moveToFolder(context: Context, ids: Set<Long>, folder: String) {
+        save(context, _macros.value.map { if (it.id in ids) it.copy(folder = folder) else it })
+    }
+
     fun delete(context: Context, id: Long) {
         save(context, _macros.value.filterNot { it.id == id })
     }
@@ -56,23 +61,24 @@ object MacroStore {
 }
 
 /**
- * 접어 둔 폴더 이름.
+ * 펼쳐 둔 폴더 이름.
  *
- * 목록을 접어 두는 것은 화면 상태가 아니라 사람의 결정이다. 앱을 껐다 켜도 그대로 있어야 한다.
+ * 폴더는 목록을 줄이려고 만든 것이니 처음에는 다 접혀 있다. 사람이 펼친 것만 기억한다.
+ * 펼치고 접는 것은 화면 상태가 아니라 사람의 결정이다. 앱을 껐다 켜도 그대로 있어야 한다.
  */
 object FolderState {
     private const val PREFS = "folders"
-    private const val KEY_COLLAPSED = "collapsed"
+    private const val KEY_EXPANDED = "expanded"
 
-    fun collapsed(context: Context): Set<String> =
+    fun expanded(context: Context): Set<String> =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getStringSet(KEY_COLLAPSED, emptySet()) ?: emptySet()
+            .getStringSet(KEY_EXPANDED, emptySet()) ?: emptySet()
 
-    fun setCollapsed(context: Context, folder: String, collapsed: Boolean) {
-        val now = collapsed(context).toMutableSet()
-        if (collapsed) now += folder else now -= folder
+    fun setExpanded(context: Context, folder: String, expanded: Boolean) {
+        val now = expanded(context).toMutableSet()
+        if (expanded) now += folder else now -= folder
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-            .putStringSet(KEY_COLLAPSED, now).apply()
+            .putStringSet(KEY_EXPANDED, now).apply()
     }
 }
 

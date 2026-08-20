@@ -32,10 +32,14 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
@@ -58,6 +62,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -230,7 +235,7 @@ private fun MacroListScreen(
     val scope = rememberCoroutineScope()
     val macros by MacroStore.macros.collectAsState()
     val running by EngineState.running.collectAsState()
-    val recent by RunLog.lines.collectAsState()
+    val engineConnected by EngineState.connected.collectAsState()
     val updateState by Updater.state.collectAsState()
 
     var listenerEnabled by remember { mutableStateOf(isListenerEnabled(context)) }
@@ -257,7 +262,7 @@ private fun MacroListScreen(
     var deleting by remember { mutableStateOf<Macro?>(null) }
     var moving by remember { mutableStateOf<Macro?>(null) }
     // 접어 둔 폴더는 앱을 껐다 켜도 접힌 채로 있어야 한다
-    val collapsed = remember { mutableStateListOf<String>().apply { addAll(FolderState.collapsed(context)) } }
+    val expanded = remember { mutableStateListOf<String>().apply { addAll(FolderState.expanded(context)) } }
     val snackbar = remember { SnackbarHostState() }
 
     // 백업 파일 읽기 — 이 앱의 .json과 예전 .mdr을 모두 받아서 종류를 가리지 않고 연다
@@ -331,11 +336,23 @@ private fun MacroListScreen(
 
     moving?.let { target ->
         FolderPickDialog(
-            current = target.folder,
+            target = target,
+            others = macros.filter { it.id != target.id }.inOrder(order),
             existing = macros.map { it.folder }.filter { it.isNotBlank() }.distinct().sorted(),
-            onPick = { folder ->
-                MacroStore.upsert(context, target.copy(folder = folder))
+            onApply = { folder, ids ->
+                MacroStore.moveToFolder(context, ids, folder)
+                // 넣은 폴더는 펼쳐 둔다. 접힌 채로 두면 방금 옮긴 것이 사라진 것처럼 보인다
+                if (folder.isNotBlank() && folder !in expanded) {
+                    expanded.add(folder)
+                    FolderState.setExpanded(context, folder, true)
+                }
                 moving = null
+                scope.launch {
+                    snackbar.showMessage(
+                        if (folder.isBlank()) "${ids.size}개를 폴더에서 뺐습니다"
+                        else "${ids.size}개를 \u201C$folder\u201D 폴더로 옮겼습니다"
+                    )
+                }
             },
             onClose = { moving = null }
         )
@@ -394,6 +411,26 @@ private fun MacroListScreen(
                             }
                         )
                         HorizontalDivider()
+                        // 엔진이 도는지는 여기서 본다. 점이 숨쉬면 살아 있는 것이다
+                        DropdownMenuItem(
+                            text = {
+                                Column {
+                                    Text("실행 기록")
+                                    Text(
+                                        when {
+                                            !listenerEnabled -> "알림 접근 권한이 꺼져 있습니다"
+                                            !engineConnected -> "엔진 연결 중 · 매크로 ${macros.size}개"
+                                            else -> "켜져 있음 · 매크로 ${macros.size}개"
+                                        },
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            },
+                            leadingIcon = { StatusDot(listenerEnabled && engineConnected) },
+                            onClick = { menuOpen = false; onOpenLog() }
+                        )
+                        HorizontalDivider()
                         // 메뉴는 닫지 않는다. 누른 자리에서 화면 색이 바뀌는 것을 보고 고르게 한다
                         DropdownMenuItem(
                             text = { Text("화면 · ${themeMode.label}") },
@@ -413,14 +450,12 @@ private fun MacroListScreen(
                 }
             )
 
-            // 엔진이 살아 있는지는 목록을 어디까지 내렸든 보여야 한다. 그래서 스크롤 밖에 둔다
-            EngineStrip(
-                listenerEnabled = listenerEnabled,
-                macroCount = macros.size,
-                lastLine = recent.firstOrNull(),
-                onOpenSettings = { context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) },
-                onOpenLog = onOpenLog
-            )
+            // 권한이 없으면 이 앱은 아무것도 못 한다. 그때만 목록 위에 남는다
+            if (!listenerEnabled) {
+                PermissionWarning {
+                    context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                }
+            }
           }
         },
         floatingActionButton = {
@@ -487,16 +522,15 @@ private fun MacroListScreen(
             macroItems(loose.inOrder(order), handlers())
 
             folders.forEach { (folder, inside) ->
-                val isCollapsed = folder in collapsed
+                val isCollapsed = folder !in expanded
                 item(key = "folder:$folder") {
                     FolderHeader(
                         name = folder,
                         count = inside.size,
                         collapsed = isCollapsed
                     ) {
-                        val next = !isCollapsed
-                        if (next) collapsed.add(folder) else collapsed.remove(folder)
-                        FolderState.setCollapsed(context, folder, next)
+                        if (isCollapsed) expanded.add(folder) else expanded.remove(folder)
+                        FolderState.setExpanded(context, folder, isCollapsed)
                     }
                 }
                 if (!isCollapsed) macroItems(inside.inOrder(order), handlers())
@@ -582,64 +616,35 @@ private fun FolderHeader(name: String, count: Int, collapsed: Boolean, onToggle:
 }
 
 /**
- * 엔진이 살아 있는지, 방금 무슨 일이 있었는지. 이 앱에서 가장 자주 확인하게 되는 줄이다.
- * 앱바 바로 아래 붙박이로 서 있으므로 카드가 아니라 한 겹의 줄로 그린다.
+ * 권한이 꺼져 있다고 알리는 띠.
+ *
+ * 엔진이 도는지는 메뉴에서 본다. 잘 돌 때는 목록 위 자리를 비워 두는 것이 낫다.
+ * 다만 권한이 없으면 이 앱은 아무 일도 하지 않으므로, 그때는 목록보다 먼저 눈에 걸려야 한다.
  */
 @Composable
-private fun EngineStrip(
-    listenerEnabled: Boolean,
-    macroCount: Int,
-    lastLine: String?,
-    onOpenSettings: () -> Unit,
-    onOpenLog: () -> Unit
-) {
-    val connected by EngineState.connected.collectAsState()
+private fun PermissionWarning(onOpenSettings: () -> Unit) {
     val scheme = MaterialTheme.colorScheme
-    val live = listenerEnabled && connected
-
-    // 권한이 없으면 이 앱은 아무것도 못 한다. 그때만 빨갛게 눈에 걸리게 둔다
-    val background = if (listenerEnabled) scheme.surface else scheme.errorContainer
-    val ink = if (listenerEnabled) scheme.onSurface else scheme.onErrorContainer
-
     Column(
         Modifier
             .fillMaxWidth()
-            .background(background)
-            .clickable(
-                role = Role.Button,
-                onClickLabel = if (listenerEnabled) "실행 기록 열기" else "설정 열기"
-            ) { if (listenerEnabled) onOpenLog() else onOpenSettings() }
+            .background(scheme.errorContainer)
+            .clickable(role = Role.Button, onClickLabel = "설정 열기", onClick = onOpenSettings)
             .padding(horizontal = 16.dp, vertical = 10.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            StatusDot(live)
+            StatusDot(false)
             Spacer(Modifier.width(8.dp))
             Text(
-                when {
-                    !listenerEnabled -> "알림 접근 권한이 꺼져 있습니다"
-                    !connected -> "엔진 연결 중"
-                    else -> "켜져 있음"
-                },
+                "알림 접근 권한이 꺼져 있습니다",
                 style = MaterialTheme.typography.titleMedium,
-                color = ink
-            )
-            Spacer(Modifier.weight(1f))
-            Text(
-                "매크로 ${macroCount}개",
-                style = MonoLabel,
-                color = if (listenerEnabled) scheme.onSurfaceVariant else ink
+                color = scheme.onErrorContainer
             )
         }
-
         Spacer(Modifier.padding(top = 3.dp))
-
         Text(
-            if (!listenerEnabled) "권한을 켜야 알림을 읽고 지울 수 있습니다. 눌러서 설정으로 갑니다."
-            else lastLine ?: "아직 실행된 매크로가 없습니다",
-            style = if (listenerEnabled) MonoSmall else MaterialTheme.typography.bodySmall,
-            color = if (listenerEnabled) scheme.onSurfaceVariant else ink,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
+            "권한을 켜야 알림을 읽고 지울 수 있습니다. 눌러서 설정으로 갑니다.",
+            style = MaterialTheme.typography.bodySmall,
+            color = scheme.onErrorContainer
         )
     }
     HorizontalDivider(color = scheme.outlineVariant)
@@ -797,25 +802,33 @@ private fun MacroCard(
 }
 
 /**
- * 이 매크로를 어느 폴더에 둘지 고른다.
+ * 어느 폴더에 둘지 고르고, 같이 옮길 매크로를 더 고른다.
  *
  * 폴더를 따로 관리하는 화면은 두지 않는다. 이름을 적으면 그때 생기고, 마지막 매크로가 빠지면 사라진다.
+ * 폴더를 만드는 이유는 대개 여러 개를 한군데 모으려는 것이라, 옮길 것을 이 자리에서 함께 고르게 한다.
  */
 @Composable
 private fun FolderPickDialog(
-    current: String,
+    target: Macro,
+    others: List<Macro>,
     existing: List<String>,
-    onPick: (String) -> Unit,
+    onApply: (String, Set<Long>) -> Unit,
     onClose: () -> Unit
 ) {
     var naming by remember { mutableStateOf(false) }
+    var picked by remember { mutableStateOf(target.folder) }
+    val also = remember { mutableStateListOf<Long>() }
 
     if (naming) {
         TextPrompt(
             title = "새 폴더 이름",
             hint = "목록에서 이 이름으로 묶입니다",
             initial = "",
-            onDone = { if (it.isNotBlank()) onPick(it.trim()) else naming = false },
+            confirmLabel = "만들기",
+            onDone = { name ->
+                if (name.isNotBlank()) picked = name.trim()
+                naming = false
+            },
             onClose = { naming = false }
         )
         return
@@ -825,18 +838,69 @@ private fun FolderPickDialog(
         onDismissRequest = onClose,
         title = { Text("어느 폴더에 둘까요?") },
         text = {
-            Column {
-                FolderChoice("폴더에 넣지 않음", current.isBlank()) { onPick("") }
-                existing.forEach { folder ->
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                FolderChoice("폴더에 넣지 않음", picked.isBlank()) { picked = "" }
+                // 새로 적은 이름은 아직 목록에 없다. 그것도 골라진 것으로 보여야 한다
+                val names = (existing + picked).filter { it.isNotBlank() }.distinct().sorted()
+                names.forEach { folder ->
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                    FolderChoice(folder, folder == current) { onPick(folder) }
+                    FolderChoice(folder, folder == picked) { picked = folder }
                 }
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 FolderChoice("새 폴더 만들기…", false) { naming = true }
+
+                if (others.isNotEmpty()) {
+                    Spacer(Modifier.height(20.dp))
+                    Text(
+                        "\u201C${target.name}\u201D${target.name.andParticle()} 함께 옮길 것",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    others.forEach { macro ->
+                        MacroCheck(macro, macro.id in also) { on ->
+                            if (on) also.add(macro.id) else also.remove(macro.id)
+                        }
+                    }
+                }
             }
         },
-        confirmButton = { TextButton(onClick = onClose) { Text("닫기") } }
+        confirmButton = {
+            TextButton(onClick = { onApply(picked, also.toSet() + target.id) }) {
+                Text(if (also.isEmpty()) "넣기" else "${also.size + 1}개 넣기")
+            }
+        },
+        dismissButton = { TextButton(onClick = onClose) { Text("취소") } }
     )
+}
+
+/** 같이 옮길 매크로 한 줄. 지금 어느 폴더에 있는지 아래에 붙여 둔다 */
+@Composable
+private fun MacroCheck(macro: Macro, checked: Boolean, onChange: (Boolean) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth()
+            .heightIn(min = 48.dp)
+            .toggleable(value = checked, role = Role.Checkbox, onValueChange = onChange),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Checkbox(checked = checked, onCheckedChange = null)
+        Spacer(Modifier.width(8.dp))
+        Column {
+            Text(
+                macro.name,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            if (macro.folder.isNotBlank()) {
+                Text(
+                    macro.folder,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
 }
 
 @Composable

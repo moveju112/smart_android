@@ -329,3 +329,14 @@ fun Action.summary(): String = when (this) {
     }
     is Action.StopUnless -> condition.summary()
 }
+
+/**
+ * 이름 뒤에 붙일 조사 — 받침이 있으면 "과", 없으면 "와".
+ *
+ * 매크로 이름은 사람이 적는 것이라 무엇이 올지 모른다. 조사를 고정하면 문장이 어색해진다.
+ */
+fun String.andParticle(): String {
+    val last = lastOrNull() ?: return "와"
+    val hangul = last.code in 0xAC00..0xD7A3
+    return if (hangul && (last.code - 0xAC00) % 28 != 0) "과" else "와"
+}

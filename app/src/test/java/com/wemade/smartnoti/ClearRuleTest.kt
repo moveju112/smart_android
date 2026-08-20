@@ -149,3 +149,19 @@ class ThemeModeTest {
         assertEquals(ThemeMode.System, ThemeMode.System.next().next().next())
     }
 }
+
+/** 폴더 다이얼로그가 매크로 이름 뒤에 붙이는 조사 — 틀리면 문장이 어색해진다 */
+class ParticleTest {
+
+    @Test
+    fun `받침이 없으면 와, 있으면 과`() {
+        assertEquals("와", "와이파이 붙으면 알리기".andParticle())
+        assertEquals("과", "토스 알림".andParticle())
+    }
+
+    @Test
+    fun `한글이 아니면 와로 둔다`() {
+        assertEquals("와", "WireGuard".andParticle())
+        assertEquals("와", "".andParticle())
+    }
+}
