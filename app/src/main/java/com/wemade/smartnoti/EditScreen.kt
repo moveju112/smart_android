@@ -3,6 +3,7 @@ package com.wemade.smartnoti
 import android.Manifest
 import android.bluetooth.BluetoothManager
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -17,6 +18,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -55,6 +57,8 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -625,31 +629,24 @@ private fun AddStepButton(onAdd: (Action) -> Unit) {
             Triple("브로드캐스트", "다른 앱에 신호를 보냅니다", Action.Broadcast()),
             Triple("이럴 때만 계속", "지금 상태가 조건과 다르면 여기서 멈춥니다", Action.StopUnless())
         )
-        AlertDialog(
-            onDismissRequest = { open = false },
-            title = { Text("어떤 단계를 넣을까요?") },
-            text = {
-                Column {
-                    choices.forEachIndexed { i, (label, hint, action) ->
-                        if (i > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                        Column(
-                            Modifier.fillMaxWidth()
-                                .heightIn(min = 48.dp)
-                                .clickable(role = Role.Button) { onAdd(action); open = false }
-                                .padding(vertical = 10.dp)
-                        ) {
-                            Text(label, style = MaterialTheme.typography.titleMedium)
-                            Text(
-                                hint,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
+        PickerSheet("어떤 단계를 넣을까요?", onClose = { open = false }) {
+            itemsIndexed(choices) { i, (label, hint, action) ->
+                if (i > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                Column(
+                    Modifier.fillMaxWidth()
+                        .heightIn(min = 56.dp)
+                        .clickable(role = Role.Button) { onAdd(action); open = false }
+                        .padding(vertical = 11.dp)
+                ) {
+                    Text(label, style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        hint,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
-            },
-            confirmButton = { TextButton(onClick = { open = false }) { Text("닫기") } }
-        )
+            }
+        }
     }
 }
 
@@ -1294,7 +1291,8 @@ private fun LiveNotificationPicker(
     if (emphasis) {
         OutlinedButton(
             onClick = { open = true },
-            modifier = Modifier.fillMaxWidth().height(46.dp)
+            // 고정 높이면 글꼴을 크게 쓴 사람에게 글자가 잘린다
+            modifier = Modifier.fillMaxWidth().heightIn(min = 46.dp)
         ) { Text("지금 떠 있는 알림에서 고르기") }
     } else {
         TextButton(onClick = { open = true }, modifier = Modifier.fillMaxWidth()) {
@@ -1320,38 +1318,122 @@ private fun LiveNotificationDialog(
     onClose: () -> Unit
 ) {
     val items = remember { MacroService.instance?.snapshot().orEmpty() }
-    AlertDialog(
-        onDismissRequest = onClose,
-        title = { Text("지금 떠 있는 알림") },
-        text = {
-            if (items.isEmpty()) {
-                Text("떠 있는 알림이 없거나 엔진이 꺼져 있습니다.\n지우려는 알림을 띄운 상태에서 다시 열어 보세요.")
-            } else {
-                LazyColumn(Modifier.heightIn(max = 420.dp)) {
-                    itemsIndexed(items) { index, peek ->
-                        if (index > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                        Column(
-                            Modifier.fillMaxWidth()
-                                .heightIn(min = 48.dp)
-                                .clickable(role = Role.Button) { onPick(peek.packageName, peek.appLabel, peek.title, peek.text, peek.clearable) }
-                                .padding(vertical = 8.dp)
-                        ) {
-                            Text(peek.title.ifBlank { "(제목 없음)" }, style = MaterialTheme.typography.bodyMedium)
-                            if (peek.text.isNotBlank()) {
-                                Text(peek.text, style = MaterialTheme.typography.bodySmall)
-                            }
-                            Text(
-                                peek.packageName + if (!peek.clearable) "  · 지울 수 없는 알림" else "",
-                                style = MonoSmall,
-                                color = if (peek.clearable) MaterialTheme.colorScheme.onSurfaceVariant
-                                else MaterialTheme.colorScheme.error
-                            )
-                        }
-                    }
-                }
+    PickerSheet(title = "지금 떠 있는 알림", onClose = onClose, wide = items.size > 4) {
+        if (items.isEmpty()) {
+            item {
+                Text(
+                    "떠 있는 알림이 없거나 엔진이 꺼져 있습니다.\n지우려는 알림을 띄운 상태에서 다시 열어 보세요.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
             }
-        },
-        confirmButton = { TextButton(onClick = onClose) { Text("닫기") } }
+        }
+        itemsIndexed(items) { index, peek ->
+            if (index > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Column(
+                Modifier.fillMaxWidth()
+                    .heightIn(min = 56.dp)
+                    .clickable(role = Role.Button) {
+                        onPick(peek.packageName, peek.appLabel, peek.title, peek.text, peek.clearable)
+                    }
+                    .padding(vertical = 9.dp)
+            ) {
+                Text(peek.title.ifBlank { "(제목 없음)" }, style = MaterialTheme.typography.bodyMedium)
+                if (peek.text.isNotBlank()) {
+                    Text(peek.text, style = MaterialTheme.typography.bodySmall)
+                }
+                Text(
+                    peek.packageName + if (!peek.clearable) "  · 지울 수 없는 알림" else "",
+                    style = MonoSmall,
+                    color = if (peek.clearable) MaterialTheme.colorScheme.onSurfaceVariant
+                    else MaterialTheme.colorScheme.error
+                )
+            }
+        }
+    }
+}
+
+/**
+ * 목록에서 하나를 고르는 자리.
+ *
+ * 다이얼로그로 만들면 380dp 창에 수백 줄을 밀어 넣게 되고, 확인 버튼 자리가 값을 적용하는
+ * 버튼이 되어 「닫기」와 뜻이 겹친다. 시트는 화면 높이를 그대로 쓰고 확인 버튼이 없다.
+ * 넷이 같은 껍데기를 쓰므로 어느 자리에서 열어도 같은 모양이다.
+ *
+ * @param wide 목록이 길 수 있는 자리. 처음부터 펼쳐 올린다
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PickerSheet(
+    title: String,
+    onClose: () -> Unit,
+    wide: Boolean = false,
+    header: (@Composable () -> Unit)? = null,
+    footer: (@Composable () -> Unit)? = null,
+    items: LazyListScope.() -> Unit
+) {
+    val state = rememberModalBottomSheetState(skipPartiallyExpanded = wide)
+    ModalBottomSheet(onDismissRequest = onClose, sheetState = state) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .then(if (wide) Modifier.fillMaxHeight(0.9f) else Modifier)
+                .padding(horizontal = 20.dp)
+        ) {
+            Text(
+                title,
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.padding(bottom = 12.dp)
+            )
+            header?.invoke()
+            LazyColumn(Modifier.weight(1f, fill = false)) { items() }
+            footer?.let {
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                it()
+            }
+            Spacer(Modifier.height(24.dp))
+        }
+    }
+}
+
+/** 시트 안의 한 줄. 위에 사람이 읽는 이름, 아래에 기계값 */
+@Composable
+private fun PickerRow(primary: String, secondary: String?, warn: Boolean = false, onClick: () -> Unit) {
+    Column(
+        Modifier.fillMaxWidth()
+            .heightIn(min = 56.dp)
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(vertical = 9.dp)
+    ) {
+        Text(
+            primary,
+            style = MaterialTheme.typography.bodyMedium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        if (!secondary.isNullOrBlank()) {
+            Text(
+                secondary,
+                style = MonoSmall,
+                color = if (warn) MaterialTheme.colorScheme.error
+                else MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+/** 목록 밖의 선택지. 「모든 앱으로」처럼 값을 비우는 일이 확인 버튼 자리에 앉지 않게 한다 */
+@Composable
+private fun SheetAction(label: String, onClick: () -> Unit) {
+    Text(
+        label,
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.fillMaxWidth()
+            .heightIn(min = 56.dp)
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(vertical = 17.dp)
     )
 }
 
@@ -1390,71 +1472,71 @@ private fun AppPicker(packageName: String, appLabel: String, onPick: (String, St
 @Composable
 private fun AppChooserDialog(onPick: (String, String) -> Unit, onClose: () -> Unit) {
     val context = LocalContextCompat()
-    val apps by produceState(emptyList<Pair<String, String>>(), context) {
+    val apps by produceState(emptyList<AppEntry>(), context) {
         value = withContext(Dispatchers.IO) { installedApps(context) }
     }
     var query by remember { mutableStateOf("") }
 
-    AlertDialog(
-        onDismissRequest = onClose,
-        title = { Text("앱 고르기") },
-        text = {
-            Column {
-                OutlinedTextField(
-                    value = query,
-                    onValueChange = { query = it },
-                    label = { Text("이름이나 패키지로 찾기") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                val shown = apps.filter {
-                    query.isBlank() || it.first.contains(query, true) || it.second.contains(query, true)
-                }
-                if (apps.isEmpty()) {
-                    Text(
-                        "설치된 앱을 읽는 중…",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(vertical = 12.dp)
-                    )
-                } else if (shown.isEmpty()) {
-                    Text(
-                        "찾는 앱이 없습니다. 다른 말로 찾아 보세요.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(vertical = 12.dp)
-                    )
-                }
-                LazyColumn(Modifier.heightIn(max = 380.dp)) {
-                    itemsIndexed(shown) { index, (label, pkg) ->
-                        if (index > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                        Column(
-                            Modifier.fillMaxWidth()
-                                .heightIn(min = 48.dp)
-                                .clickable(role = Role.Button) { onPick(pkg, label) }
-                                .padding(vertical = 8.dp)
-                        ) {
-                            Text(
-                                label,
-                                style = MaterialTheme.typography.bodyMedium,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Text(
-                                pkg,
-                                style = MonoSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    }
-                }
-            }
+    val shown = apps.filter {
+        query.isBlank() || it.label.contains(query, true) || it.pkg.contains(query, true)
+    }
+    // 흔히 쓰는 앱이 먼저 온다. 예전에는 첫 화면이 「2 Button Navigation Bar」부터였다
+    val common = shown.filter { it.common }
+    val rest = shown.filterNot { it.common }
+
+    PickerSheet(
+        title = "앱 고르기",
+        onClose = onClose,
+        wide = true,
+        header = {
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                label = { Text("이름이나 패키지로 찾기") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+            )
         },
-        confirmButton = { TextButton(onClick = { onPick("", "") }) { Text("모든 앱으로") } },
-        dismissButton = { TextButton(onClick = onClose) { Text("닫기") } }
-    )
+        footer = { SheetAction("모든 앱으로") { onPick("", "") } }
+    ) {
+        if (apps.isEmpty()) {
+            item {
+                Text(
+                    "설치된 앱을 읽는 중…",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(vertical = 12.dp)
+                )
+            }
+        } else if (shown.isEmpty()) {
+            item {
+                Text(
+                    "찾는 앱이 없습니다. 다른 말로 찾아 보세요.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(vertical = 12.dp)
+                )
+            }
+        }
+        itemsIndexed(common) { index, app ->
+            if (index > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            PickerRow(app.label, app.pkg) { onPick(app.pkg, app.label) }
+        }
+        if (rest.isNotEmpty()) {
+            item {
+                Text(
+                    "그 밖에",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 18.dp, bottom = 4.dp)
+                )
+            }
+            itemsIndexed(rest) { index, app ->
+                if (index > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                PickerRow(app.label, app.pkg) { onPick(app.pkg, app.label) }
+            }
+        }
+    }
 }
 
 @Composable
@@ -1471,54 +1553,60 @@ private fun DevicePicker(address: String, deviceName: String, onPick: (String, S
 
     if (open) {
         val devices = remember { bondedDevices(context) }
-        AlertDialog(
-            onDismissRequest = { open = false },
-            title = { Text("짝지어 둔 기기") },
-            text = {
-                if (devices.isEmpty()) {
+        PickerSheet(
+            title = "짝지어 둔 기기",
+            onClose = { open = false },
+            footer = { SheetAction("모든 기기로") { onPick("", ""); open = false } }
+        ) {
+            if (devices.isEmpty()) {
+                item {
                     Text(
                         if (hasBluetoothPermission(context))
                             "짝지어 둔 기기가 없습니다. 안드로이드 설정에서 기기와 먼저 짝을 지어 주세요."
                         else
-                            "블루투스 권한이 없어 기기 목록을 읽지 못합니다. 앱 정보 → 권한에서 허용해 주세요."
+                            "블루투스 권한이 없어 기기 목록을 읽지 못합니다. 앱 정보 → 권한에서 허용해 주세요.",
+                        style = MaterialTheme.typography.bodyMedium
                     )
-                } else {
-                    LazyColumn(Modifier.heightIn(max = 380.dp)) {
-                        itemsIndexed(devices) { index, (name, addr) ->
-                            if (index > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                            Column(
-                                Modifier.fillMaxWidth()
-                                    .heightIn(min = 48.dp)
-                                    .clickable(role = Role.Button) { onPick(addr, name); open = false }
-                                    .padding(vertical = 8.dp)
-                            ) {
-                                Text(
-                                    name,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Text(addr, style = MonoSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                        }
-                    }
                 }
-            },
-            confirmButton = { TextButton(onClick = { onPick("", ""); open = false }) { Text("모든 기기로") } },
-            dismissButton = { TextButton(onClick = { open = false }) { Text("닫기") } }
-        )
+            }
+            itemsIndexed(devices) { index, (name, addr) ->
+                if (index > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                PickerRow(name, addr) { onPick(addr, name); open = false }
+            }
+        }
     }
 }
 
 @Composable
 private fun LocalContextCompat(): Context = androidx.compose.ui.platform.LocalContext.current
 
-/** 설치된 앱을 (표시이름, 패키지명)으로 뽑아 이름순 정렬 */
-private fun installedApps(context: Context): List<Pair<String, String>> {
+/** 목록에 세울 앱 하나. `common`은 런처에 아이콘이 있거나 사용자가 깐 앱이라는 뜻이다 */
+private data class AppEntry(val label: String, val pkg: String, val common: Boolean)
+
+/**
+ * 설치된 앱을 뽑는다.
+ *
+ * 무필터로 뽑으면 첫 화면이 「2 Button Navigation Bar」 같은 시스템 조각부터 시작한다.
+ * 그렇다고 걸러 버리면 런처 아이콘 없는 앱의 알림을 지울 수 없게 되므로, 숨기지 않고 뒤로 보낸다.
+ */
+private fun installedApps(context: Context): List<AppEntry> {
     val pm = context.packageManager
+    val launchable = runCatching {
+        pm.queryIntentActivities(
+            Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), 0
+        ).mapNotNull { it.activityInfo?.packageName }.toSet()
+    }.getOrDefault(emptySet())
+
     return pm.getInstalledApplications(0)
-        .map { (pm.getApplicationLabel(it).toString()) to it.packageName }
-        .sortedBy { it.first.lowercase() }
+        .map { info ->
+            val system = (info.flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM) != 0
+            AppEntry(
+                label = pm.getApplicationLabel(info).toString(),
+                pkg = info.packageName,
+                common = info.packageName in launchable || !system
+            )
+        }
+        .sortedBy { it.label.lowercase() }
 }
 
 /** 블루투스 기기 목록을 읽어도 되는지. 안드로이드 12부터 따로 승인을 받는다 */

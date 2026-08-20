@@ -439,24 +439,7 @@ private fun MacroListScreen(
                         HorizontalDivider()
                         // 엔진이 도는지는 여기서 본다. 상태를 말하는 것은 아래 글이고 점은 그 글을 거든다
                         DropdownMenuItem(
-                            text = {
-                                Column {
-                                    Text("실행 기록")
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        StatusDot(listenerEnabled && engineConnected, size = 7.dp)
-                                        Spacer(Modifier.width(6.dp))
-                                        Text(
-                                            when {
-                                                !listenerEnabled -> "알림 접근 권한이 꺼져 있습니다"
-                                                !engineConnected -> "엔진 연결 중 · 매크로 ${macros.size}개"
-                                                else -> "켜져 있음 · 매크로 ${macros.size}개"
-                                            },
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                }
-                            },
+                            text = { Text("실행 기록") },
                             leadingIcon = { Icon(Icons.Default.History, null) },
                             onClick = { menuOpen = false; onOpenLog() }
                         )
@@ -496,7 +479,17 @@ private fun MacroListScreen(
                     title = "알림 접근 권한이 꺼져 있습니다",
                     body = "권한을 켜야 알림을 읽고 지울 수 있습니다. 눌러서 설정으로 갑니다."
                 ) { context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
-            } else if (needsBluetooth && !hasBluetooth) {
+            }
+            if (listenerEnabled) {
+                // 잘 돌 때도 이만큼은 보인다. 완전한 침묵이 이 앱의 실패 방식이었다
+                EngineLine(
+                    connected = engineConnected,
+                    macroCount = macros.size,
+                    lastRunAt = history.values.maxByOrNull { it.at }?.at,
+                    onOpenLog = onOpenLog
+                )
+            }
+            if (listenerEnabled && needsBluetooth && !hasBluetooth) {
                 // 블루투스 트리거는 이 권한 없이는 아무 말 없이 안 걸린다. 그래서 눈에 걸리게 둔다
                 TopWarning(
                     title = "근처 기기 권한이 꺼져 있습니다",
@@ -524,7 +517,7 @@ private fun MacroListScreen(
         Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.TopCenter) {
         LazyColumn(
             modifier = Modifier.widthIn(max = 720.dp).fillMaxSize(),
-            contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 96.dp),
+            contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 116.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             (updateState as? UpdateState.Downloaded)?.let { ready ->
@@ -721,6 +714,46 @@ private fun FolderHeader(name: String, count: Int, collapsed: Boolean, onToggle:
 }
 
 /**
+ * 목록 위 엔진 한 줄.
+ *
+ * 한때 이 자리를 비워 두고 상태를 메뉴 안에 넣었다. 잘 돌 때 자리를 아끼자는 판단이었는데,
+ * 실제 실패는 「다 정상으로 보이는데 안 돈」 경우였고 그때 사람은 메뉴를 열 이유를 모른다.
+ * 그래서 돌려놓되 놀라게 하지 않을 만큼만 조용히 둔다.
+ */
+@Composable
+private fun EngineLine(connected: Boolean, macroCount: Int, lastRunAt: Long?, onOpenLog: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    val now = remember(lastRunAt) { System.currentTimeMillis() }
+    val text = buildString {
+        append(if (connected) "켜져 있음" else "엔진 연결 중")
+        append(" · 매크로 ").append(macroCount).append("개")
+        if (lastRunAt != null) {
+            val last = statusLine(now, null, lastRunAt, MacroHistory.Outcome.Ran)
+            append(" · 마지막 ").append(listOf(last.lead, last.stamp).filter { it.isNotBlank() }.joinToString(" "))
+        }
+    }
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .background(scheme.surface)
+            .clickable(role = Role.Button, onClickLabel = "실행 기록 열기", onClick = onOpenLog)
+            .padding(horizontal = 16.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        StatusDot(connected)
+        Spacer(Modifier.width(8.dp))
+        Text(
+            text,
+            style = MaterialTheme.typography.bodySmall,
+            color = scheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+    HorizontalDivider(color = scheme.outlineVariant)
+}
+
+/**
  * 매크로가 돌 수 없는 상태라고 알리는 띠.
  *
  * 엔진이 도는지는 메뉴에서 본다. 잘 돌 때는 목록 위 자리를 비워 두는 것이 낫다.
@@ -815,7 +848,8 @@ private fun MacroCard(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f)
                     )
-                    IconButton(onClick = onRunNow, enabled = engineReady, modifier = Modifier.size(40.dp)) {
+                    // 48dp 미만이면 스위치와 붙어 오탭한다. 이건 눌리면 즉시 브로드캐스트가 나간다
+                    IconButton(onClick = onRunNow, enabled = engineReady, modifier = Modifier.size(48.dp)) {
                         Icon(
                             Icons.Default.PlayArrow,
                             contentDescription = "지금 실행",
@@ -1345,7 +1379,12 @@ private fun RunLogScreen(onBack: () -> Unit) {
             ) {
                 itemsIndexed(lines) { index, line ->
                     if (index > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                    Row(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+                    Row(
+                        Modifier.fillMaxWidth()
+                            // 눈으로는 ▶ ■ 가 빠르지만 읽어 주는 기계는 그대로 읽는다
+                            .clearAndSetSemantics { contentDescription = line.spoken() }
+                            .padding(vertical = 6.dp)
+                    ) {
                         Text(
                             // 오늘 것은 시각만 보여 준다. 날짜는 어제 일과 섞일 때만 쓸모가 있다
                             line.substringBefore("  ").removePrefix("$today "),
@@ -1370,6 +1409,11 @@ private suspend fun SnackbarHostState.showMessage(text: String) {
     currentSnackbarData?.dismiss()
     showSnackbar(text)
 }
+
+/** 기호를 말로 바꾼다. 화면에는 ▶ 가 빠르고, 소리로는 「실행」이 맞다 */
+private fun String.spoken(): String = this
+    .replace("▶", "실행")
+    .replace("■", "멈춤")
 
 /** 알림 접근 권한이 켜져 있는지 — 시스템 설정 문자열에 이 앱이 들어있는지로 판단한다 */
 private fun isListenerEnabled(context: Context): Boolean {

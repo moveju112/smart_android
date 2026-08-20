@@ -32,6 +32,10 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.collectAsState
@@ -207,6 +211,7 @@ private fun WidgetConfigScreen(onPick: (Macro) -> Unit) {
     val scheme = MaterialTheme.colorScheme
     // 목록 화면과 같은 앱바 규칙을 쓴다. 스크롤이 시작되면 경계가 생긴다
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
+    val activity = androidx.compose.ui.platform.LocalContext.current as? android.app.Activity
 
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
@@ -214,7 +219,13 @@ private fun WidgetConfigScreen(onPick: (Macro) -> Unit) {
         topBar = {
             TopAppBar(
                 scrollBehavior = scrollBehavior,
-                title = { Text("어떤 매크로를 걸까요?") }
+                title = { Text("어떤 매크로를 걸까요?") },
+                // 이 화면만 뒤로 나가는 길이 안 보였다. 시스템 백은 되지만 그렇게 쓰여 있지 않았다
+                navigationIcon = {
+                    IconButton(onClick = { activity?.finish() }) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "뒤로")
+                    }
+                }
             )
         }
     ) { padding ->
