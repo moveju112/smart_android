@@ -165,6 +165,8 @@ class MacroService : NotificationListenerService() {
         super.onListenerConnected()
         RunLog.attach(this)
         MacroStore.load(this)
+        MacroHistory.load(this)
+        PendingWaits.load(this)
         val filter = IntentFilter().apply {
             addAction(BluetoothDevice.ACTION_ACL_CONNECTED)
             addAction(BluetoothDevice.ACTION_ACL_DISCONNECTED)
@@ -362,6 +364,10 @@ class MacroService : NotificationListenerService() {
         seeded = true
     }
 
+    // 브로드캐스트가 막히면 남은 단계는 계속 돌아야 하지만 결과는 실패로 남아야 한다
+    @Volatile
+    private var lastActionFailed = false
+
     private fun launchMacro(macro: Macro, force: Boolean, fromIndex: Int = 0): Job? {
         if (running[macro.id]?.isActive == true) return null
         val job = scope.launch {
@@ -374,6 +380,9 @@ class MacroService : NotificationListenerService() {
                     else -> "▶ ${macro.name}"
                 }
             )
+            // 이번 실행이 무엇으로 끝났는지. 목록이 이 값을 한 줄로 보여 준다
+            var outcome = MacroHistory.Outcome.Ran
+            var handedOff = false
             try {
                 var at = fromIndex
                 while (at < macro.actions.size) {
@@ -383,18 +392,23 @@ class MacroService : NotificationListenerService() {
                     // 프로세스가 정리돼도 시각이 되면 시스템이 깨워 남은 단계를 이어간다
                     if (!force && action is Action.Delay && action.seconds >= Alarms.HANDOFF_SECONDS) {
                         handOff(macro, at + 1, action.seconds)
+                        handedOff = true
                         break
                     }
 
                     if (!runAction(action, force)) {
                         Log.i(TAG, "중단: ${macro.name}")
                         RunLog.add("■ 조건이 맞지 않아 멈춤 · ${macro.name}")
+                        outcome = MacroHistory.Outcome.Stopped
                         break
                     }
+                    if (lastActionFailed) outcome = MacroHistory.Outcome.Failed
                     at++
                 }
             } finally {
                 EngineState.markRunning(macro.id, false)
+                // 알람에 넘긴 것은 아직 끝난 것이 아니다. 그때는 대기 표시가 이 자리를 대신한다
+                if (!handedOff) MacroHistory.record(this@MacroService, macro.id, outcome)
             }
         }
         running[macro.id] = job
@@ -411,6 +425,7 @@ class MacroService : NotificationListenerService() {
 
     /** 액션 하나 실행. false를 주면 남은 액션을 실행하지 않는다 */
     private suspend fun runAction(action: Action, force: Boolean): Boolean {
+        lastActionFailed = false
         when (action) {
             // ponytail: 긴 대기는 도즈 모드에서 늘어질 수 있다. 분 단위 정확도가 필요해지면 AlarmManager로 교체
             is Action.Delay -> if (!force) delay(action.seconds * 1000L)
@@ -475,6 +490,7 @@ class MacroService : NotificationListenerService() {
                 if (blocked != null) {
                     RunLog.add("브로드캐스트 보내지 못함 · $blocked")
                     Log.w(TAG, "브로드캐스트 막힘: $blocked")
+                    lastActionFailed = true
                     return true
                 }
 
@@ -483,6 +499,7 @@ class MacroService : NotificationListenerService() {
                     .onFailure {
                         Log.w(TAG, "브로드캐스트 실패: ${it.message}")
                         RunLog.add("브로드캐스트 실패 · ${it.message}")
+                        lastActionFailed = true
                     }
             }
         }

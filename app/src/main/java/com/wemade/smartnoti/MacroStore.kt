@@ -82,6 +82,53 @@ object FolderState {
     }
 }
 
+/**
+ * 매크로가 마지막으로 무엇을 했는지.
+ *
+ * 목록이 이 앱의 유일한 약속을 지키려면 — 네가 안 보는 동안 일어났다 — 무장과 미실행을
+ * 구별해 보여야 한다. 실행 기록은 사람이 읽는 글이라 화면이 되읽을 수 없으므로 결과만 따로 적는다.
+ */
+object MacroHistory {
+    private const val PREFS = "history"
+
+    enum class Outcome { Ran, Stopped, Failed }
+
+    data class Entry(val at: Long, val outcome: Outcome)
+
+    private val _entries = MutableStateFlow<Map<Long, Entry>>(emptyMap())
+    val entries: StateFlow<Map<Long, Entry>> = _entries
+
+    fun load(context: Context) {
+        _entries.value = prefs(context).all.mapNotNull { (key, value) ->
+            val id = key.toLongOrNull() ?: return@mapNotNull null
+            val entry = parseEntry(value as? String ?: return@mapNotNull null) ?: return@mapNotNull null
+            id to entry
+        }.toMap()
+    }
+
+    fun record(context: Context, macroId: Long, outcome: Outcome) {
+        val entry = Entry(System.currentTimeMillis(), outcome)
+        prefs(context).edit().putString(macroId.toString(), "${entry.at}:${outcome.name}").apply()
+        _entries.value = _entries.value + (macroId to entry)
+    }
+
+    /** 매크로를 지울 때 이력도 함께 지운다 */
+    fun forget(context: Context, macroId: Long) {
+        prefs(context).edit().remove(macroId.toString()).apply()
+        _entries.value = _entries.value - macroId
+    }
+
+    private fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+}
+
+/** 적어 둔 이력 한 줄을 읽는다. 모르는 결과 이름이 섞여 있어도 앱이 죽지 않게 한다 */
+internal fun parseEntry(raw: String): MacroHistory.Entry? {
+    val at = raw.substringBefore(':').toLongOrNull() ?: return null
+    val name = raw.substringAfter(':', "")
+    val outcome = MacroHistory.Outcome.entries.firstOrNull { it.name == name } ?: return null
+    return MacroHistory.Entry(at, outcome)
+}
+
 /** 엔진이 지금 살아 있는지, 어떤 매크로가 돌고 있는지 — 화면이 상태를 그대로 비추게 한다 */
 object EngineState {
     val connected = MutableStateFlow(false)
@@ -159,14 +206,28 @@ object RunLog {
 object PendingWaits {
     private const val PREFS = "waits"
 
+    /** 어느 매크로가 언제 이어질 예정인지. 목록이 「22:06 이어서 함」을 그리려면 이 값이 필요하다 */
+    private val _waiting = MutableStateFlow<Map<Long, Long>>(emptyMap())
+    val waiting: StateFlow<Map<Long, Long>> = _waiting
+
+    fun load(context: Context) {
+        _waiting.value = prefs(context).all.mapNotNull { (key, value) ->
+            val id = key.toLongOrNull() ?: return@mapNotNull null
+            val (_, due) = parse(value as? String ?: return@mapNotNull null) ?: return@mapNotNull null
+            id to due
+        }.toMap()
+    }
+
     fun put(context: Context, macroId: Long, nextIndex: Int, dueAt: Long) {
         prefs(context).edit().putString(macroId.toString(), "$nextIndex:$dueAt").apply()
+        _waiting.value = _waiting.value + (macroId to dueAt)
     }
 
     /** 꺼내면서 지운다. 같은 대기를 두 번 이어가지 않으려는 것이다 */
     fun take(context: Context, macroId: Long): Int? {
         val raw = prefs(context).getString(macroId.toString(), null) ?: return null
         prefs(context).edit().remove(macroId.toString()).apply()
+        _waiting.value = _waiting.value - macroId
         return parse(raw)?.first
     }
 

@@ -181,3 +181,70 @@ class PendingWaitTest {
         assertNull(parse("a:b"))
     }
 }
+
+/**
+ * 카드 아래 상태 한 줄. 이 앱이 "네가 안 볼 때 일어났다"를 지키는지 사람이 확인하는 유일한 자리다.
+ * 시각을 밖에서 넣어 주므로 시계에 기대지 않고 굳힐 수 있다.
+ */
+class StatusLineTest {
+
+    // 시간대를 고정한다. 안 하면 이 검사가 이 기계에서만 통과한다
+    @org.junit.Before
+    fun fixZone() {
+        java.util.TimeZone.setDefault(java.util.TimeZone.getTimeZone("Asia/Seoul"))
+    }
+
+    // 2026-08-20 21:35 KST
+    private val now = 1787229300000L
+    private val hour = 3600_000L
+
+    @Test
+    fun `한 번도 안 돈 매크로는 그렇게 말한다`() {
+        assertEquals("아직 안 돎", statusLine(now, null, null, null).plain)
+    }
+
+    @Test
+    fun `이어질 예정이 마지막 결과보다 앞선다`() {
+        val line = statusLine(now, now + hour, now - hour, MacroHistory.Outcome.Ran)
+        assertEquals("이어서 함", line.tail)
+    }
+
+    @Test
+    fun `오늘 것은 시각만, 어제 것은 어제를 붙인다`() {
+        assertEquals("20:35 실행", statusLine(now, null, now - hour, MacroHistory.Outcome.Ran).plain)
+        assertEquals(
+            true,
+            statusLine(now, null, now - 24 * hour, MacroHistory.Outcome.Ran).plain.startsWith("어제 ")
+        )
+    }
+
+    @Test
+    fun `실패와 멈춤을 다른 말로 적는다`() {
+        assertEquals("20:35 실패", statusLine(now, null, now - hour, MacroHistory.Outcome.Failed).plain)
+        assertEquals(
+            "20:35 조건 안 맞아 멈춤",
+            statusLine(now, null, now - hour, MacroHistory.Outcome.Stopped).plain
+        )
+    }
+
+    @Test
+    fun `시각만 고정폭으로 떼어 놓는다`() {
+        val today = statusLine(now, null, now - hour, MacroHistory.Outcome.Ran)
+        assertEquals("", today.lead)
+        assertEquals("20:35", today.stamp)
+
+        // 「아직 안 돎」은 기계값이 없으므로 통째로 사람 글이어야 한다
+        val never = statusLine(now, null, null, null)
+        assertEquals("", never.stamp)
+        assertEquals("아직 안 돎", never.tail)
+
+        assertEquals("어제", statusLine(now, null, now - 24 * hour, MacroHistory.Outcome.Ran).lead)
+    }
+
+    @Test
+    fun `적어 둔 이력 한 줄을 되읽는다`() {
+        assertEquals(MacroHistory.Entry(1787229300000L, MacroHistory.Outcome.Failed), parseEntry("1787229300000:Failed"))
+        assertNull(parseEntry("1787229300000:Unknown"))
+        assertNull(parseEntry("Failed"))
+    }
+}

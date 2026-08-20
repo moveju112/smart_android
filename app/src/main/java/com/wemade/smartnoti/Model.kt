@@ -340,3 +340,57 @@ fun String.andParticle(): String {
     val hangul = last.code in 0xAC00..0xD7A3
     return if (hangul && (last.code - 0xAC00) % 28 != 0) "과" else "와"
 }
+
+/**
+ * 카드 아래에 붙는 상태 한 줄.
+ *
+ * 이 앱은 사람이 안 볼 때 일을 한다. 그래서 목록이 구성만 보여 주면 "무장됐는지"에 답을 못 한다.
+ * 대기 중인 것이 먼저다 — 그것이 지금 살아 있는 약속이니까. 그다음이 마지막 결과다.
+ *
+ * 세 토막으로 나눠 준다. 이 앱은 기계값에만 고정폭을 쓰므로 시각만 따로 떼어 놓아야 한다.
+ *
+ * @param lead 시각 앞에 붙는 사람 말 — 「어제」처럼. 없으면 빈 문자열
+ * @param stamp 시각. 여기만 고정폭으로 그린다
+ * @param tail 시각 뒤에 붙는 사람 말 — 「실행」·「이어서 함」
+ */
+data class StatusText(val lead: String, val stamp: String, val tail: String) {
+    /** 한 줄로 이어 붙인 것. 검사와 읽어 주기에 쓴다 */
+    val plain: String get() = listOf(lead, stamp, tail).filter { it.isNotBlank() }.joinToString(" ")
+}
+
+fun statusLine(
+    nowMillis: Long,
+    dueAtMillis: Long?,
+    lastAtMillis: Long?,
+    lastOutcome: MacroHistory.Outcome?
+): StatusText {
+    // 1. 이어질 예정이 있으면 그것이 지금 가장 중요한 사실이다
+    if (dueAtMillis != null) {
+        val (lead, stamp) = whenParts(nowMillis, dueAtMillis)
+        return StatusText(lead, stamp, "이어서 함")
+    }
+
+    // 2. 없으면 마지막으로 무엇을 했는지
+    if (lastAtMillis == null || lastOutcome == null) return StatusText("", "", "아직 안 돎")
+    val tail = when (lastOutcome) {
+        MacroHistory.Outcome.Ran -> "실행"
+        MacroHistory.Outcome.Stopped -> "조건 안 맞아 멈춤"
+        MacroHistory.Outcome.Failed -> "실패"
+    }
+    val (lead, stamp) = whenParts(nowMillis, lastAtMillis)
+    return StatusText(lead, stamp, tail)
+}
+
+/** 오늘이면 시각만, 어제·내일이면 그 말을 앞에 두고, 그보다 멀면 날짜까지 시각 쪽에 붙인다 */
+private fun whenParts(nowMillis: Long, atMillis: Long): Pair<String, String> {
+    val zone = java.time.ZoneId.systemDefault()
+    val now = java.time.Instant.ofEpochMilli(nowMillis).atZone(zone).toLocalDate()
+    val at = java.time.Instant.ofEpochMilli(atMillis).atZone(zone)
+    val clock = at.format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"))
+    return when (at.toLocalDate()) {
+        now -> "" to clock
+        now.minusDays(1) -> "어제" to clock
+        now.plusDays(1) -> "내일" to clock
+        else -> "" to (at.format(java.time.format.DateTimeFormatter.ofPattern("MM-dd")) + " " + clock)
+    }
+}

@@ -124,6 +124,8 @@ class MainActivity : ComponentActivity() {
         RunLog.attach(this)
         ThemeState.load(this)
         MacroStore.load(this)
+        MacroHistory.load(this)
+        PendingWaits.load(this)
         setContent { SmartNotiTheme { AppRoot(resumeTick) } }
     }
 
@@ -239,6 +241,8 @@ private fun MacroListScreen(
     val macros by MacroStore.macros.collectAsState()
     val running by EngineState.running.collectAsState()
     val engineConnected by EngineState.connected.collectAsState()
+    val waiting by PendingWaits.waiting.collectAsState()
+    val history by MacroHistory.entries.collectAsState()
     val updateState by Updater.state.collectAsState()
 
     var listenerEnabled by remember { mutableStateOf(isListenerEnabled(context)) }
@@ -377,7 +381,11 @@ private fun MacroListScreen(
             title = { Text("이 매크로를 지울까요?") },
             text = { Text("\u201C${target.name}\u201D이 사라집니다. 되돌릴 수 없습니다.") },
             confirmButton = {
-                TextButton(onClick = { MacroStore.delete(context, target.id); deleting = null }) {
+                TextButton(onClick = {
+                    MacroStore.delete(context, target.id)
+                    MacroHistory.forget(context, target.id)
+                    deleting = null
+                }) {
                     Text("지우기", color = MaterialTheme.colorScheme.error)
                 }
             },
@@ -525,6 +533,9 @@ private fun MacroListScreen(
             fun handlers() = MacroActions(
                 running = running,
                 engineReady = listenerEnabled,
+                waiting = waiting,
+                history = history,
+                onOpenLog = onOpenLog,
                 onToggle = { macro, on -> MacroStore.upsert(context, macro.copy(enabled = on)) },
                 onRunNow = { macro ->
                     val service = MacroService.instance
@@ -575,10 +586,55 @@ private fun MacroListScreen(
     }
 }
 
+/**
+ * 카드 맨 아래 한 줄 — 이 매크로가 마지막으로 무엇을 했는지.
+ *
+ * 색은 이 앱의 규칙을 그대로 따른다. 앰버는 시간이므로 기다리는 중이 앰버,
+ * 빨강은 잘못된 일이므로 실패가 빨강, 나머지는 조용한 회색이다.
+ * 눌러 실행 기록으로 갈 수 있게 둔다 — 궁금해지는 자리가 바로 여기다.
+ */
+@Composable
+private fun MacroStatusLine(dueAt: Long?, last: MacroHistory.Entry?, onOpenLog: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    // 분이 바뀌면 「21:35」가 「어제 21:35」로 넘어가야 한다. 화면에 들어올 때마다 다시 센다
+    val now = remember(dueAt, last) { System.currentTimeMillis() }
+    val status = statusLine(now, dueAt, last?.at, last?.outcome)
+    val color = when {
+        dueAt != null -> scheme.secondary
+        last?.outcome == MacroHistory.Outcome.Failed -> scheme.error
+        else -> scheme.onSurfaceVariant
+    }
+    val body = MaterialTheme.typography.bodySmall
+    Row(
+        Modifier
+            .heightIn(min = 48.dp)
+            .fillMaxWidth()
+            .clickable(role = Role.Button, onClickLabel = "실행 기록 열기", onClick = onOpenLog)
+            // 읽어 주는 기계에는 한 문장으로 넘긴다. 토막이 따로 읽히면 뜻이 흩어진다
+            .clearAndSetSemantics { contentDescription = status.plain }
+            .padding(top = 14.dp),
+        verticalAlignment = Alignment.Top
+    ) {
+        // 시각만 고정폭이다. 앞뒤로 붙는 말은 사람이 읽는 글이라 시스템 글꼴을 쓴다
+        if (status.lead.isNotBlank()) {
+            Text(status.lead, style = body, color = color)
+            Spacer(Modifier.width(5.dp))
+        }
+        if (status.stamp.isNotBlank()) {
+            Text(status.stamp, style = MonoSmall, color = color)
+            Spacer(Modifier.width(7.dp))
+        }
+        Text(status.tail, style = body, color = color)
+    }
+}
+
 /** 카드 한 장이 부르는 일들. 목록과 폴더가 같은 묶음을 나눠 쓴다 */
 private data class MacroActions(
     val running: Set<Long>,
     val engineReady: Boolean,
+    val waiting: Map<Long, Long>,
+    val history: Map<Long, MacroHistory.Entry>,
+    val onOpenLog: () -> Unit,
     val onToggle: (Macro, Boolean) -> Unit,
     val onRunNow: (Macro) -> Unit,
     val onEdit: (Macro) -> Unit,
@@ -601,6 +657,9 @@ private fun LazyListScope.macroItems(list: List<Macro>, actions: MacroActions) {
             macro = macro,
             running = macro.id in actions.running,
             engineReady = actions.engineReady,
+            dueAt = actions.waiting[macro.id],
+            last = actions.history[macro.id],
+            onOpenLog = actions.onOpenLog,
             onToggle = { actions.onToggle(macro, it) },
             onRunNow = { actions.onRunNow(macro) },
             onClick = { actions.onEdit(macro) },
@@ -705,6 +764,9 @@ private fun MacroCard(
     macro: Macro,
     running: Boolean,
     engineReady: Boolean,
+    dueAt: Long?,
+    last: MacroHistory.Entry?,
+    onOpenLog: () -> Unit,
     onToggle: (Boolean) -> Unit,
     onRunNow: () -> Unit,
     onClick: () -> Unit,
@@ -790,6 +852,10 @@ private fun MacroCard(
                         }
                     }
                 }
+
+                // 구성만 보여 주면 "무장됐나"에 답을 못 한다. 마지막으로 무엇을 했는지 한 줄로 남긴다
+                Spacer(Modifier.padding(top = 7.dp))
+                MacroStatusLine(dueAt = dueAt, last = last, onOpenLog = onOpenLog)
             }
         }
 
