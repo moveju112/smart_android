@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -297,11 +298,16 @@ fun EditScreen(macro: Macro, onSave: (Macro) -> Unit, onDelete: () -> Unit, onCa
             )
         }
     ) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.TopCenter) {
+        // 키보드가 올라오면 목록만 줄어들어야 한다. 그러지 않으면 창이 통째로 밀려
+        // 상단 바가 사라지고 본문이 상태바 밑으로 들어간다 (targetSdk 35 는 창을 안 줄인다)
+        Box(
+            Modifier.fillMaxSize().padding(padding).imePadding(),
+            contentAlignment = Alignment.TopCenter
+        ) {
             LazyColumn(
                 modifier = Modifier.widthIn(max = 720.dp).fillMaxSize(),
-                contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 32.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
+                contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 if (simple) {
                     clearRuleSections(rule) { rule = it }
@@ -321,11 +327,11 @@ private fun ClearAllWarning(packageName: String, text: String) {
     Row(
         Modifier.fillMaxWidth()
             .background(scheme.errorContainer, RoundedCornerShape(8.dp))
-            .padding(horizontal = 12.dp, vertical = 10.dp),
+            .padding(horizontal = 12.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text("주의", style = MonoSmall, color = scheme.onErrorContainer)
-        Spacer(Modifier.width(10.dp))
+        Spacer(Modifier.width(12.dp))
         Text(
             "이대로 두면 모든 앱의 알림이 전부 지워집니다. 위에서 앱이나 문구를 정해 주세요.",
             style = MaterialTheme.typography.bodySmall,
@@ -385,8 +391,8 @@ private fun ClearSentence(rule: ClearRule, onChange: (ClearRule) -> Unit) {
 
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Column(
-            Modifier.fillMaxWidth().padding(start = 18.dp, end = 18.dp, top = 22.dp, bottom = 18.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+            Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 20.dp, bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             SentenceRow {
                 Slot(
@@ -449,7 +455,7 @@ private fun ClearSentence(rule: ClearRule, onChange: (ClearRule) -> Unit) {
 private fun SentenceRow(content: @Composable () -> Unit) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(3.dp)
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) { content() }
 }
 
@@ -467,7 +473,7 @@ private fun Slot(text: String, filled: Boolean, onClick: () -> Unit) {
                 RoundedCornerShape(8.dp)
             )
             .clickable(role = Role.Button, onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 8.dp)
+            .padding(horizontal = 12.dp, vertical = 8.dp)
     )
 }
 
@@ -538,7 +544,7 @@ private fun SecondsField(seconds: Int, onChange: (Int) -> Unit) {
     val unit = remember(seconds) { fittingUnit(seconds) }
     val shown = if (seconds == 0) "" else (seconds / unit.factor).toString()
 
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         OutlinedTextField(
             value = shown,
             onValueChange = {
@@ -551,7 +557,7 @@ private fun SecondsField(seconds: Int, onChange: (Int) -> Unit) {
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
             modifier = Modifier.fillMaxWidth()
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
             TimeUnit.entries.forEach { candidate ->
                 ChoiceChip(candidate.label, candidate == unit, Modifier.weight(1f)) {
                     // 단위를 바꾸면 적어 둔 숫자를 그 단위로 읽는다. 30 분 -> 30 시간
@@ -585,21 +591,30 @@ private fun LazyListScope.advancedSections(
     onOpen: (String?) -> Unit,
     onChange: (Macro) -> Unit
 ) {
+    val triggers = draft.allTriggers()
+
     item {
-        val triggers = draft.allTriggers()
-        Section(
+        SectionHeading(
             1, "언제",
             if (triggers.size > 1) "이 중 하나라도 생기면 매크로가 돕니다" else "이 일이 생기면 매크로가 돕니다"
-        ) {
-            triggers.forEachIndexed { index, trigger ->
-                val key = "t$index"
-                if (index > 0) {
-                    Text(
-                        "또는",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
+        )
+    }
+
+    // 트리거도 액션과 같은 모양으로 세운다. 같은 조각인데 한쪽은 공용 카드 안, 한쪽은 제 카드였다
+    items(triggers.size, key = { "t$it" }) { index ->
+        val trigger = triggers[index]
+        val key = "t$index"
+        Column {
+            // 「또는」은 두 카드 사이에 놓인다. 하나가 끝나고 다음이 시작한다는 표시다
+            if (index > 0) {
+                Text(
+                    "또는",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(start = 16.dp, bottom = 4.dp)
+                )
+            }
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
                 FoldedPiece(
                     mark = Step.Trigger,
                     accent = MaterialTheme.colorScheme.primary,
@@ -612,25 +627,29 @@ private fun LazyListScope.advancedSections(
                             onChange(draft.withTriggers(triggers.filterIndexed { i, _ -> i != index }))
                             onOpen(null)
                         }
-                    } else null
+                    } else null,
+                    padded = false
                 ) {
                     TriggerEditor(trigger) { changed ->
                         onChange(draft.withTriggers(triggers.mapIndexed { i, t -> if (i == index) changed else t }))
                     }
                 }
             }
-            TextButton(
-                onClick = {
-                    onChange(draft.withTriggers(triggers + Trigger.Notification()))
-                    // 방금 넣은 것은 펼쳐 준다. 넣자마자 채워야 하는 값이라서다
-                    onOpen("t${triggers.size}")
-                },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Icon(Icons.Default.Add, null, Modifier.size(18.dp))
-                Spacer(Modifier.width(6.dp))
-                Text("트리거 추가")
-            }
+        }
+    }
+
+    item {
+        OutlinedButton(
+            onClick = {
+                onChange(draft.withTriggers(triggers + Trigger.Notification()))
+                // 방금 넣은 것은 펼쳐 준다. 넣자마자 채워야 하는 값이라서다
+                onOpen("t${triggers.size}")
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Icon(Icons.Default.Add, null, Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("트리거 추가")
         }
     }
 
@@ -688,7 +707,7 @@ private fun AddStepButton(onAdd: (Action) -> Unit) {
 
     OutlinedButton(onClick = { open = true }, modifier = Modifier.fillMaxWidth()) {
         Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-        Spacer(Modifier.width(6.dp))
+        Spacer(Modifier.width(8.dp))
         Text("단계 추가")
     }
 
@@ -706,7 +725,7 @@ private fun AddStepButton(onAdd: (Action) -> Unit) {
                     Modifier.fillMaxWidth()
                         .heightIn(min = 56.dp)
                         .clickable(role = Role.Button) { onAdd(action); open = false }
-                        .padding(vertical = 11.dp)
+                        .padding(vertical = 12.dp)
                 ) {
                     Text(label, style = MaterialTheme.typography.titleMedium)
                     Text(
@@ -789,20 +808,20 @@ private fun FoldedPiece(
     Column(Modifier.padding(if (padded) 0.dp else 4.dp)) {
         Row(
             Modifier.fillMaxWidth()
-                .heightIn(min = 52.dp)
+                .heightIn(min = 56.dp)
                 .clickable(
                     role = Role.Button,
                     onClickLabel = if (opened) "접기" else "펼쳐서 고치기",
                     onClick = onToggle
                 )
-                .padding(start = if (padded) 0.dp else 10.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
+                .padding(start = if (padded) 0.dp else 12.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             StepMark(mark, accent)
-            Spacer(Modifier.width(9.dp))
+            Spacer(Modifier.width(12.dp))
             if (order != null) {
                 Text(order, style = MonoSmall, color = scheme.onSurfaceVariant)
-                Spacer(Modifier.width(7.dp))
+                Spacer(Modifier.width(8.dp))
             }
             // 접혀 있을 때 이 줄이 내용의 전부다. 종류가 아니라 무엇을 하는지 적는다
             // 접혀 있을 때 이 줄이 내용의 전부다. 사람이 정한 값만 진하게 남는다
@@ -823,7 +842,7 @@ private fun FoldedPiece(
 
         if (opened) {
             Column(
-                Modifier.padding(start = if (padded) 0.dp else 10.dp, end = 8.dp, bottom = 8.dp),
+                Modifier.padding(start = if (padded) 0.dp else 12.dp, end = 8.dp, bottom = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 content()
@@ -864,28 +883,6 @@ private fun Action.kindLabel(): String = when (this) {
 
 // ─────────────────────────── 공통 뼈대 ───────────────────────────
 
-/**
- * 섹션 한 덩어리. 번호 + 제목 + 카드로 묶어 어디까지가 한 가지 일인지 보이게 한다.
- * 화면이 난잡했던 건 칸은 많은데 무엇끼리 한 묶음인지가 없어서였다.
- */
-@Composable
-private fun Section(
-    number: Int,
-    title: String,
-    hint: String?,
-    content: @Composable () -> Unit
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        SectionHeading(number, title, hint)
-        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-            Column(
-                Modifier.padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) { content() }
-        }
-    }
-}
-
 @Composable
 private fun SectionHeading(number: Int, title: String, hint: String? = null) {
     Column {
@@ -893,12 +890,12 @@ private fun SectionHeading(number: Int, title: String, hint: String? = null) {
         if (number > 1) {
             HorizontalDivider(
                 color = MaterialTheme.colorScheme.outline,
-                modifier = Modifier.padding(bottom = 14.dp)
+                modifier = Modifier.padding(bottom = 16.dp)
             )
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             NumberBadge(number)
-            Spacer(Modifier.width(10.dp))
+            Spacer(Modifier.width(12.dp))
             Column {
                 Text(title, style = MaterialTheme.typography.titleMedium)
                 if (hint != null) {
@@ -954,7 +951,7 @@ private fun StateSwitch(onLabel: String, offLabel: String, value: Boolean, onCha
 
 @Composable
 private fun TriggerEditor(trigger: Trigger, onChange: (Trigger) -> Unit) {
-    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
         ChoiceChip("알림", trigger is Trigger.Notification, Modifier.weight(1f)) {
             if (trigger !is Trigger.Notification) onChange(Trigger.Notification())
         }
@@ -1068,7 +1065,7 @@ private fun ActionEditor(action: Action, onChange: (Action) -> Unit) {
                 supportingText = { Text("비우면 패키지 전체로 보냄") },
                 singleLine = true, modifier = Modifier.fillMaxWidth()
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(
                     value = action.extraName,
                     onValueChange = { onChange(action.copy(extraName = it)) },
@@ -1107,7 +1104,7 @@ private fun ActionEditor(action: Action, onChange: (Action) -> Unit) {
 @Composable
 private fun BroadcastPresetRow(action: Action.Broadcast, onPick: (BroadcastPreset) -> Unit) {
     val picked = broadcastPresets.firstOrNull { action.matches(it) }
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(
             "아는 것부터 고르세요",
             style = MaterialTheme.typography.titleSmall,
@@ -1115,7 +1112,7 @@ private fun BroadcastPresetRow(action: Action.Broadcast, onPick: (BroadcastPrese
         )
         // 두 줄로 나눈다. 한 줄에 네 개를 밀어 넣으면 글자가 잘린다
         broadcastPresets.chunked(2).forEach { pair ->
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                 pair.forEach { preset ->
                     ChoiceChip(preset.label, preset === picked, Modifier.weight(1f)) { onPick(preset) }
                 }
@@ -1194,7 +1191,7 @@ private fun BroadcastBlockedNote(action: Action.Broadcast) {
  */
 @Composable
 private fun ConditionEditor(condition: Condition, onChange: (Condition) -> Unit) {
-    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
         ChoiceChip("와이파이", condition is Condition.Wifi, Modifier.weight(1f)) {
             if (condition !is Condition.Wifi) onChange(Condition.Wifi())
         }
@@ -1205,7 +1202,7 @@ private fun ConditionEditor(condition: Condition, onChange: (Condition) -> Unit)
             if (condition !is Condition.TimeRange) onChange(Condition.TimeRange(23 * 60, 7 * 60))
         }
     }
-    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
         ChoiceChip("배터리", condition is Condition.Battery, Modifier.weight(1f)) {
             if (condition !is Condition.Battery) onChange(Condition.Battery())
         }
@@ -1264,7 +1261,7 @@ private fun ConditionEditor(condition: Condition, onChange: (Condition) -> Unit)
                     color = MaterialTheme.colorScheme.error
                 )
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                 ChoiceChip("충전 상관없음", condition.charging == null, Modifier.weight(1f)) {
                     onChange(condition.copy(charging = null))
                 }
@@ -1441,7 +1438,7 @@ private fun LiveNotificationPicker(
         OutlinedButton(
             onClick = { open = true },
             // 고정 높이면 글꼴을 크게 쓴 사람에게 글자가 잘린다
-            modifier = Modifier.fillMaxWidth().heightIn(min = 46.dp)
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
         ) { Text("지금 떠 있는 알림에서 고르기") }
     } else {
         TextButton(onClick = { open = true }, modifier = Modifier.fillMaxWidth()) {
@@ -1484,7 +1481,7 @@ private fun LiveNotificationDialog(
                     .clickable(role = Role.Button) {
                         onPick(peek.packageName, peek.appLabel, peek.title, peek.text, peek.clearable)
                     }
-                    .padding(vertical = 9.dp)
+                    .padding(vertical = 8.dp)
             ) {
                 Text(peek.title.ifBlank { "(제목 없음)" }, style = MaterialTheme.typography.bodyMedium)
                 if (peek.text.isNotBlank()) {
@@ -1551,7 +1548,7 @@ private fun PickerRow(primary: String, secondary: String?, warn: Boolean = false
         Modifier.fillMaxWidth()
             .heightIn(min = 56.dp)
             .clickable(role = Role.Button, onClick = onClick)
-            .padding(vertical = 9.dp)
+            .padding(vertical = 8.dp)
     ) {
         Text(
             primary,
@@ -1582,7 +1579,7 @@ private fun SheetAction(label: String, onClick: () -> Unit) {
         modifier = Modifier.fillMaxWidth()
             .heightIn(min = 56.dp)
             .clickable(role = Role.Button, onClick = onClick)
-            .padding(vertical = 17.dp)
+            .padding(vertical = 16.dp)
     )
 }
 
@@ -1594,7 +1591,7 @@ private fun PickerField(label: String, value: String, detail: String?, onClick: 
         Modifier.fillMaxWidth()
             .border(1.dp, scheme.outline, RoundedCornerShape(8.dp))
             .clickable(role = Role.Button, onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 10.dp)
+            .padding(horizontal = 16.dp, vertical = 12.dp)
     ) {
         Text(label, style = MonoSmall, color = scheme.onSurfaceVariant)
         Text(value, style = MaterialTheme.typography.bodyMedium, color = scheme.onSurface)
@@ -1677,7 +1674,7 @@ private fun AppChooserDialog(onPick: (String, String) -> Unit, onClose: () -> Un
                     "그 밖에",
                     style = MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 18.dp, bottom = 4.dp)
+                    modifier = Modifier.padding(top = 16.dp, bottom = 4.dp)
                 )
             }
             itemsIndexed(rest) { index, app ->

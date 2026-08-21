@@ -57,6 +57,7 @@ import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
@@ -69,6 +70,8 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -534,7 +537,7 @@ private fun MacroListScreen(
         Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.TopCenter) {
         LazyColumn(
             modifier = Modifier.widthIn(max = 720.dp).fillMaxSize(),
-            contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 116.dp),
+            contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 96.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             (updateState as? UpdateState.Downloaded)?.let { ready ->
@@ -620,6 +623,26 @@ private fun MacroListScreen(
 }
 
 /**
+ * 상태 한 줄의 글자들.
+ *
+ * 두 밀도가 이것을 나눠 쓴다 — 접힌 줄에서는 이름 오른쪽에, 펼친 카드에서는 레일 아래에.
+ * 시각만 고정폭이다. 앞뒤로 붙는 말은 사람이 읽는 글이라 시스템 글꼴 그대로 둔다.
+ */
+@Composable
+private fun StatusWords(status: StatusText, color: Color) {
+    val body = MaterialTheme.typography.bodySmall
+    if (status.lead.isNotBlank()) {
+        Text(status.lead, style = body, color = color, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Spacer(Modifier.width(4.dp))
+    }
+    if (status.stamp.isNotBlank()) {
+        Text(status.stamp, style = MonoSmall, color = color, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Spacer(Modifier.width(8.dp))
+    }
+    Text(status.tail, style = body, color = color, maxLines = 1, overflow = TextOverflow.Ellipsis)
+}
+
+/**
  * 카드 맨 아래 한 줄 — 이 매크로가 마지막으로 무엇을 했는지.
  *
  * 색은 이 앱의 규칙을 그대로 따른다. 앰버는 시간이므로 기다리는 중이 앰버,
@@ -642,7 +665,6 @@ private fun MacroStatusLine(
         last?.outcome == MacroHistory.Outcome.Failed -> scheme.error
         else -> scheme.onSurfaceVariant
     }
-    val body = MaterialTheme.typography.bodySmall
     Row(
         Modifier
             .heightIn(min = 48.dp)
@@ -651,23 +673,15 @@ private fun MacroStatusLine(
             // 읽어 주는 기계에 한 문장으로 넘기면서 「버튼」이라는 사실은 남겨야 한다
             .semantics(mergeDescendants = true) { contentDescription = status.plain }
             .clickable(role = Role.Button, onClickLabel = "실행 기록 열기", onClick = onOpenLog)
-            .padding(top = 8.dp),
-        verticalAlignment = Alignment.Top
+            .padding(top = 4.dp),
+        // 48dp 는 손가락이 정한 높이다. 글을 위에 붙이면 남는 자리가 카드 밑에 빈 칸으로 보인다
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        // 시각만 고정폭이다. 앞뒤로 붙는 말은 사람이 읽는 글이라 시스템 글꼴을 쓴다
-        if (status.lead.isNotBlank()) {
-            Text(status.lead, style = body, color = color)
-            Spacer(Modifier.width(5.dp))
-        }
-        if (status.stamp.isNotBlank()) {
-            Text(status.stamp, style = MonoSmall, color = color)
-            Spacer(Modifier.width(7.dp))
-        }
-        Text(status.tail, style = body, color = color)
+        StatusWords(status, color)
         Spacer(Modifier.weight(1f))
         if (dueAt != null) {
             // 예정된 실행을 사람이 지금 취소할 수 있어야 한다. 스위치만으로는 이 창을 못 닫는다
-            IconButton(onClick = onCancelWait, modifier = Modifier.size(40.dp)) {
+            IconButton(onClick = onCancelWait, modifier = Modifier.size(48.dp)) {
                 Icon(
                     Icons.Default.Close,
                     contentDescription = "예정된 실행 취소",
@@ -750,19 +764,21 @@ private fun FolderHeader(name: String, count: Int, collapsed: Boolean, onToggle:
                 onClickLabel = if (collapsed) "펼치기" else "접기",
                 onClick = onToggle
             )
-            .padding(start = 4.dp, end = 8.dp, top = 10.dp, bottom = 4.dp),
+            // 위는 넉넉히, 아래는 붙인다. 머리글이 아래 것을 데리고 있다는 뜻이다
+            .padding(start = 16.dp, end = 8.dp, top = 20.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        // 이름이 카드 속 이름과 같은 x 에서 시작한다. 머리글이 내용보다 안으로 들어가면 위계가 뒤집힌다
+        Text(name, style = MaterialTheme.typography.titleSmall, color = scheme.onSurface)
+        Spacer(Modifier.width(8.dp))
+        Text("${count}개", style = MonoSmall, color = scheme.onSurfaceVariant)
+        Spacer(Modifier.weight(1f))
         Icon(
-            if (collapsed) Icons.Default.KeyboardArrowRight else Icons.Default.KeyboardArrowDown,
+            if (collapsed) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowUp,
             contentDescription = null,
             tint = scheme.onSurfaceVariant,
             modifier = Modifier.size(20.dp)
         )
-        Spacer(Modifier.width(4.dp))
-        Text(name, style = MaterialTheme.typography.titleSmall, color = scheme.onSurface)
-        Spacer(Modifier.width(8.dp))
-        Text("${count}개", style = MonoSmall, color = scheme.onSurfaceVariant)
     }
 }
 
@@ -790,7 +806,7 @@ private fun EngineLine(connected: Boolean, macroCount: Int, lastRunAt: Long?, on
             .fillMaxWidth()
             .background(scheme.surface)
             .clickable(role = Role.Button, onClickLabel = "실행 기록 열기", onClick = onOpenLog)
-            .padding(horizontal = 16.dp, vertical = 9.dp),
+            .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         StatusDot(connected)
@@ -820,14 +836,14 @@ private fun TopWarning(title: String, body: String, onOpenSettings: () -> Unit) 
             .fillMaxWidth()
             .background(scheme.errorContainer)
             .clickable(role = Role.Button, onClickLabel = "설정 열기", onClick = onOpenSettings)
-            .padding(horizontal = 16.dp, vertical = 10.dp)
+            .padding(horizontal = 16.dp, vertical = 12.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             StatusDot(false)
             Spacer(Modifier.width(8.dp))
             Text(title, style = MaterialTheme.typography.titleMedium, color = scheme.onErrorContainer)
         }
-        Spacer(Modifier.padding(top = 3.dp))
+        Spacer(Modifier.height(4.dp))
         Text(body, style = MaterialTheme.typography.bodySmall, color = scheme.onErrorContainer)
     }
     HorizontalDivider(color = scheme.outlineVariant)
@@ -877,9 +893,10 @@ private fun MacroCard(
     onMove: () -> Unit,
     onDelete: () -> Unit
 ) {
-    val dim = !macro.enabled
     val scheme = MaterialTheme.colorScheme
     var menuOpen by remember { mutableStateOf(false) }
+    // 손이 필요한 것만 자리를 차지한다. 열세 개가 다 조용하면 목록은 한 화면이어야 한다
+    val needsAttention = running || dueAt != null || last?.outcome == MacroHistory.Outcome.Failed
 
     Box {
         Card(
@@ -887,82 +904,25 @@ private fun MacroCard(
             // 길게 누르면 이 매크로를 두고 할 수 있는 일이 한자리에 나온다
             modifier = Modifier.combinedClickable(
                 onClickLabel = "수정하기",
-                onLongClickLabel = "이름 바꾸기·지우기 메뉴 열기",
+                onLongClickLabel = "지금 실행·이름 바꾸기·지우기 메뉴 열기",
                 onClick = onClick,
                 onLongClick = { menuOpen = true }
             )
         ) {
-            Column(Modifier.padding(start = 14.dp, end = 8.dp, top = 10.dp, bottom = 12.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        macro.name,
-                        style = MaterialTheme.typography.titleMedium,
-                        color = if (dim) scheme.onSurfaceVariant else scheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f)
-                    )
-                    // 48dp 미만이면 스위치와 붙어 오탭한다. 이건 눌리면 즉시 브로드캐스트가 나간다
-                    IconButton(onClick = onRunNow, enabled = engineReady, modifier = Modifier.size(48.dp)) {
-                        Icon(
-                            Icons.Default.PlayArrow,
-                            contentDescription = "지금 실행",
-                            modifier = Modifier.size(20.dp),
-                            tint = if (engineReady) scheme.primary else scheme.onSurfaceVariant
-                        )
-                    }
-                    QuietSwitch(checked = macro.enabled, onCheckedChange = onToggle)
-                }
-
-                Spacer(Modifier.padding(top = 5.dp))
-
-                // 알림 지우기는 단계를 펼쳐 봐야 알 게 없다. 한 줄로 접어 목록을 가볍게 둔다
-                val rule = macro.asClearRule()
-                Box(Modifier.alpha(if (dim) 0.45f else 1f)) {
-                    if (rule != null) {
-                        // 단계를 펼쳐도 알 게 없는 모양이라 한 칸으로 접는다. 표식은 그대로 트리거다
-                        RailRow(
-                            step = Step.Trigger,
-                            isFirst = true,
-                            isLast = true,
-                            lineColor = scheme.outline,
-                            markerColor = scheme.primary
-                        ) {
-                            Text(
-                                rule.parts().styled(),
-                                style = MaterialTheme.typography.bodySmall,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    } else {
-                        MacroRail(
-                            macro = macro,
-                            running = running,
-                            lineColor = scheme.outline,
-                            triggerColor = scheme.primary,
-                            waitColor = scheme.secondary,
-                            actColor = scheme.onSurfaceVariant
-                        ) { _, parts ->
-                            Text(
-                                parts.styled(),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = scheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    }
-                }
-
-                // 구성만 보여 주면 "무장됐나"에 답을 못 한다. 마지막으로 무엇을 했는지 한 줄로 남긴다
-                Spacer(Modifier.padding(top = 7.dp))
-                MacroStatusLine(
+            if (needsAttention) {
+                MacroCardOpen(
+                    macro = macro,
+                    running = running,
+                    engineReady = engineReady,
                     dueAt = dueAt,
                     last = last,
                     onOpenLog = onOpenLog,
-                    onCancelWait = onCancelWait
+                    onCancelWait = onCancelWait,
+                    onToggle = onToggle,
+                    onRunNow = onRunNow
                 )
+            } else {
+                MacroCardQuiet(macro = macro, last = last, onToggle = onToggle)
             }
         }
 
@@ -994,6 +954,138 @@ private fun MacroCard(
                 onClick = { menuOpen = false; onDelete() }
             )
         }
+    }
+}
+
+/**
+ * 조용한 매크로 한 줄.
+ *
+ * 무장돼 있고 지난번에 끝까지 돌았다면 이 카드가 물어볼 것이 없다. 그래서 이름과 마지막 시각만
+ * 남기고 구성은 한 탭 뒤로 보낸다 — 열세 개를 훑는 사람이 찾는 것은 「무엇을 하는지」가 아니라
+ * 「멈춘 게 있나」다. 「지금 실행」은 길게 누르는 메뉴 첫 줄에 그대로 있다.
+ *
+ * 이름이 모두 같은 x에서 시작하므로 눈이 한 열만 따라 내려간다. 그것이 이 줄의 유일한 일이다.
+ */
+@Composable
+private fun MacroCardQuiet(macro: Macro, last: MacroHistory.Entry?, onToggle: (Boolean) -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    val now = remember(last) { System.currentTimeMillis() }
+    val status = statusLine(now, null, last?.at, last?.outcome)
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .heightIn(min = 56.dp)
+            .padding(start = 16.dp, end = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // 스위치 자리를 먼저 떼어 두고 남은 폭을 이름과 상태가 나눈다.
+        // 한 묶음으로 두지 않으면 「조건 안 맞아 멈춤」 같은 긴 말이 스위치까지 밀고 들어온다
+        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+            // 꺼진 것은 흐리게 하지 않고 연한 잉크로 적는다. 알파로 죽이면 대비가 3:1 아래로 떨어진다
+            Text(
+                macro.name,
+                style = MaterialTheme.typography.titleMedium,
+                color = if (macro.enabled) scheme.onSurface else scheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
+            Spacer(Modifier.width(12.dp))
+            StatusWords(status, scheme.onSurfaceVariant)
+        }
+        Spacer(Modifier.width(8.dp))
+        QuietSwitch(checked = macro.enabled, onCheckedChange = onToggle)
+    }
+}
+
+/**
+ * 손이 필요한 매크로 한 장.
+ *
+ * 돌고 있거나, 알람에 맡긴 대기가 남았거나, 지난번에 실패한 것만 여기까지 펼친다.
+ * 그래서 목록에서 키가 큰 것이 곧 봐야 할 것이다 — 흘려 봐도 무엇이 문제인지 먼저 걸린다.
+ */
+@Composable
+private fun MacroCardOpen(
+    macro: Macro,
+    running: Boolean,
+    engineReady: Boolean,
+    dueAt: Long?,
+    last: MacroHistory.Entry?,
+    onOpenLog: () -> Unit,
+    onCancelWait: () -> Unit,
+    onToggle: (Boolean) -> Unit,
+    onRunNow: () -> Unit
+) {
+    val scheme = MaterialTheme.colorScheme
+    Column(Modifier.padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 4.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                macro.name,
+                style = MaterialTheme.typography.titleMedium,
+                color = if (macro.enabled) scheme.onSurface else scheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
+            // 48dp 미만이면 스위치와 붙어 오탭한다. 이건 눌리면 즉시 브로드캐스트가 나간다
+            IconButton(onClick = onRunNow, enabled = engineReady, modifier = Modifier.size(48.dp)) {
+                Icon(
+                    Icons.Default.PlayArrow,
+                    contentDescription = "지금 실행",
+                    modifier = Modifier.size(20.dp),
+                    tint = if (engineReady) scheme.primary else scheme.onSurfaceVariant
+                )
+            }
+            QuietSwitch(checked = macro.enabled, onCheckedChange = onToggle)
+        }
+
+        Spacer(Modifier.height(4.dp))
+
+        // 알림 지우기는 단계를 펼쳐 봐야 알 게 없다. 한 줄로 접어 카드를 가볍게 둔다
+        val rule = macro.asClearRule()
+        if (rule != null) {
+            // 단계를 펼쳐도 알 게 없는 모양이라 한 칸으로 접는다. 표식은 그대로 트리거다
+            RailRow(
+                step = Step.Trigger,
+                isFirst = true,
+                isLast = true,
+                lineColor = scheme.outline,
+                markerColor = scheme.primary
+            ) {
+                Text(
+                    rule.parts().styled(),
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        } else {
+            MacroRail(
+                macro = macro,
+                running = running,
+                lineColor = scheme.outline,
+                triggerColor = scheme.primary,
+                waitColor = scheme.secondary,
+                actColor = scheme.onSurfaceVariant
+            ) { _, parts ->
+                Text(
+                    parts.styled(),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = scheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+
+        // 구성만 보여 주면 "무장됐나"에 답을 못 한다. 마지막으로 무엇을 했는지 한 줄로 남긴다
+        Spacer(Modifier.height(4.dp))
+        MacroStatusLine(
+            dueAt = dueAt,
+            last = last,
+            onOpenLog = onOpenLog,
+            onCancelWait = onCancelWait
+        )
     }
 }
 
@@ -1110,7 +1202,7 @@ private fun FolderChoice(label: String, selected: Boolean, onClick: () -> Unit) 
         modifier = Modifier.fillMaxWidth()
             .heightIn(min = 48.dp)
             .clickable(role = Role.Button, onClick = onClick)
-            .padding(vertical = 14.dp)
+            .padding(vertical = 12.dp)
     )
 }
 
@@ -1144,7 +1236,7 @@ private fun NewMacroDialog(onPick: (Macro) -> Unit, onClose: () -> Unit) {
                         Modifier.fillMaxWidth()
                             .heightIn(min = 48.dp)
                             .clickable(role = Role.Button) { onPick(macro) }
-                            .padding(vertical = 10.dp)
+                            .padding(vertical = 12.dp)
                     ) {
                         Text(label, style = MaterialTheme.typography.titleMedium)
                         Text(
@@ -1183,7 +1275,7 @@ private fun EmptyState() {
 
         Spacer(Modifier.padding(top = 20.dp))
 
-        Column(Modifier.alpha(0.5f)) {
+        Column {
             sample.forEachIndexed { index, (step, text) ->
                 RailRow(
                     step = step,
@@ -1223,7 +1315,7 @@ private fun UpdateReadyBanner(version: String, onInstall: () -> Unit) {
         onClick = onInstall,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
     ) {
-        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(
                     if (version.isBlank()) "새 버전을 받아 뒀습니다" else "새 버전 $version 을 받아 뒀습니다",
@@ -1259,7 +1351,7 @@ private fun UpdateDialog(onClose: () -> Unit) {
         onDismissRequest = onClose,
         title = { Text("업데이트") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 // 손대는 것이 위, 알려주는 것이 아래
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f).padding(end = 12.dp)) {
@@ -1384,6 +1476,7 @@ private fun ImportConfirmDialog(
 @Composable
 private fun RunLogScreen(onBack: () -> Unit) {
     val context = LocalContext.current
+    val scheme = MaterialTheme.colorScheme
     val all by RunLog.lines.collectAsState()
     // 13개 매크로 + 엿보기가 켜지면 실제 신호가 잡음에 묻힌다. 걸러 볼 수 있어야 한다
     var onlyTrouble by rememberSaveable { mutableStateOf(false) }
@@ -1391,9 +1484,8 @@ private fun RunLogScreen(onBack: () -> Unit) {
         val quiet = squelch(all)
         if (onlyTrouble) quiet.filter { it.isTrouble() } else quiet
     }
-    val today = remember {
-        java.time.LocalDate.now().format(java.time.format.DateTimeFormatter.ofPattern("MM-dd"))
-    }
+    // 날짜는 줄마다 되풀이할 것이 아니라 묶음의 머리글이다. 그래야 시각 열이 한 폭으로 맞는다
+    val days = remember(lines) { lines.groupBy { it.take(5) } }
     val peek by Diagnostics.peekNotifications.collectAsState()
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     Scaffold(
@@ -1410,86 +1502,122 @@ private fun RunLogScreen(onBack: () -> Unit) {
         }
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
-            // 매크로가 왜 안 걸리는지 알려면 알림의 진짜 문구를 봐야 한다
-            Card(
-                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-            ) {
-                Row(Modifier.padding(start = 14.dp, end = 10.dp, top = 12.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            // 이 화면을 다루는 것들을 한 띠에 모아 위에 고정한다. 걸러 놓고 스크롤하면
+            // 칩이 위로 밀려 올라가 「전부」로 돌아올 길이 화면에서 사라졌다
+            Column(Modifier.fillMaxWidth().background(scheme.surfaceContainerHighest)) {
+                // 매크로가 왜 안 걸리는지 알려면 알림의 진짜 문구를 봐야 한다
+                Row(
+                    Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Column(Modifier.weight(1f).padding(end = 12.dp)) {
                         Text("들어오는 알림 엿보기", style = MaterialTheme.typography.bodyMedium)
                         Text(
                             "모든 알림의 앱과 문구를 여기에 남깁니다. 매크로 문구를 맞출 때만 켜세요.",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = scheme.onSurfaceVariant
                         )
                     }
                     QuietSwitch(checked = peek) { Diagnostics.setPeek(context, it) }
                 }
+                HorizontalDivider(color = scheme.outlineVariant)
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    // 골라진 칩은 청록이다. 앰버는 이 앱에서 시간을 뜻하므로 여기 쓸 색이 아니다
+                    val chipColors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = scheme.primaryContainer,
+                        selectedLabelColor = scheme.onPrimaryContainer
+                    )
+                    FilterChip(
+                        selected = !onlyTrouble,
+                        onClick = { onlyTrouble = false },
+                        label = { Text("전부") },
+                        colors = chipColors
+                    )
+                    FilterChip(
+                        selected = onlyTrouble,
+                        onClick = { onlyTrouble = true },
+                        label = { Text("실패·멈춤만") },
+                        colors = chipColors
+                    )
+                }
             }
+            HorizontalDivider(color = scheme.outline)
 
-        if (lines.isEmpty()) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(
-                    "아직 기록이 없습니다.\n매크로가 실행되면 여기에 쌓입니다.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        } else {
-            LazyColumn(
-                Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
-            ) {
-                item {
-                    Row(
-                        Modifier.fillMaxWidth().padding(bottom = 6.dp),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        LogChip("전부", !onlyTrouble) { onlyTrouble = false }
-                        LogChip("실패·멈춤만", onlyTrouble) { onlyTrouble = true }
-                    }
+            if (lines.isEmpty()) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text(
+                        if (onlyTrouble) "막힌 일이 없습니다." else "아직 기록이 없습니다.\n매크로가 실행되면 여기에 쌓입니다.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = scheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center
+                    )
                 }
-                if (lines.isEmpty()) {
-                    item {
-                        Text(
-                            if (onlyTrouble) "막힌 일이 없습니다." else "아직 기록이 없습니다.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(vertical = 14.dp)
-                        )
-                    }
-                }
-                itemsIndexed(lines) { index, line ->
-                    if (index > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                    Row(
-                        Modifier.fillMaxWidth()
-                            // 눈으로는 ▶ ■ 가 빠르지만 읽어 주는 기계는 그대로 읽는다
-                            .clearAndSetSemantics { contentDescription = line.spoken() }
-                            .padding(vertical = 6.dp)
-                    ) {
-                        Text(
-                            // 오늘 것은 시각만 보여 준다. 날짜는 어제 일과 섞일 때만 쓸모가 있다
-                            line.substringBefore("  ").removePrefix("$today "),
-                            style = MonoSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(Modifier.width(10.dp))
-                        // 실패는 눈에 걸려야 하고, 엔진 잡음은 뒤로 물러나야 한다
-                        Text(
-                            line.substringAfter("  "),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = when {
-                                line.isTrouble() -> MaterialTheme.colorScheme.error
-                                line.contains("▶") -> MaterialTheme.colorScheme.onSurface
-                                else -> MaterialTheme.colorScheme.onSurfaceVariant
-                            }
-                        )
+            } else {
+                LazyColumn(
+                    Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp)
+                ) {
+                    days.forEach { (date, dayLines) ->
+                        item(key = "day:$date") { LogDayHeading(date) }
+                        items(dayLines, key = { it }) { line -> LogRow(line) }
                     }
                 }
             }
         }
-        }
+    }
+}
+
+/** 하루의 머리글. 오늘과 어제는 날짜보다 그 말이 빠르다 */
+@Composable
+private fun LogDayHeading(date: String) {
+    val today = remember { java.time.LocalDate.now() }
+    val label = when (date) {
+        today.format(java.time.format.DateTimeFormatter.ofPattern("MM-dd")) -> "오늘"
+        today.minusDays(1).format(java.time.format.DateTimeFormatter.ofPattern("MM-dd")) -> "어제"
+        else -> date
+    }
+    Text(
+        label,
+        style = MaterialTheme.typography.titleSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(top = 16.dp, bottom = 4.dp)
+    )
+}
+
+/**
+ * 기록 한 줄.
+ *
+ * 날짜를 머리글로 올렸으므로 시각은 늘 여덟 글자다. 고정폭 여덟 글자는 폭이 하나뿐이라
+ * 오른쪽 글이 모든 줄에서 같은 x에서 시작한다 — 예전에는 오늘 줄과 지난 줄이 여섯 칸 어긋났다.
+ */
+@Composable
+private fun LogRow(line: String) {
+    val scheme = MaterialTheme.colorScheme
+    Row(
+        Modifier.fillMaxWidth()
+            // 눈으로는 ▶ ■ 가 빠르지만 읽어 주는 기계는 그대로 읽는다
+            .clearAndSetSemantics { contentDescription = line.spoken() }
+            .padding(vertical = 4.dp)
+    ) {
+        Text(
+            line.substringBefore("  ").drop(6),
+            style = MonoSmall,
+            color = scheme.onSurfaceVariant
+        )
+        Spacer(Modifier.width(12.dp))
+        // 실패는 눈에 걸려야 하고, 엔진 잡음은 뒤로 물러나야 한다
+        Text(
+            line.substringAfter("  "),
+            style = MaterialTheme.typography.bodySmall,
+            color = when {
+                line.isTrouble() -> scheme.error
+                line.contains("▶") -> scheme.onSurface
+                else -> scheme.onSurfaceVariant
+            }
+        )
     }
 }
 
@@ -1499,47 +1627,42 @@ private suspend fun SnackbarHostState.showMessage(text: String) {
 }
 
 /** 막힌 일인지. 사람이 기록을 열어 찾는 것은 대개 이 줄이다 */
-private fun String.isTrouble(): Boolean {
+internal fun String.isTrouble(): Boolean {
     // 엿보기가 잡아온 알림은 잡음이다. 그 알림 문구에 「실패」가 들어 있어도 이 앱의 실패가 아니다
     if (contains("알림 들어옴")) return false
     return contains("보내지 못함") || contains("실패") || contains("■") ||
         contains("멈춤") || contains("권한") || contains("없어")
 }
 
-/** 걸러 볼 수 있게 만든 칩. 목록 위에 붙는다 */
-@Composable
-private fun LogChip(label: String, picked: Boolean, onClick: () -> Unit) {
-    val scheme = MaterialTheme.colorScheme
-    Text(
-        label,
-        style = MaterialTheme.typography.bodySmall,
-        color = if (picked) scheme.onPrimaryContainer else scheme.onSurfaceVariant,
-        modifier = Modifier
-            .heightIn(min = 40.dp)
-            .background(
-                if (picked) scheme.primaryContainer else scheme.surfaceVariant,
-                RoundedCornerShape(20.dp)
-            )
-            .clickable(role = Role.Button, onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 11.dp)
-    )
+/**
+ * 되풀이되는 엔진 상태 줄을 하루에 한 번씩만 남긴다.
+ *
+ * 엔진이 재바인딩될 때마다 「엔진 시작 …」과 「블루투스 · 지금 붙어 있는 …」이 함께 찍힌다.
+ * 바로 앞줄만 보던 때는 이 둘이 번갈아 나오니 아무것도 걸러지지 않아, 32초에 네 번씩 쌓인
+ * 여덟 줄이 정작 찾으려던 두 줄을 덮었다.
+ *
+ * 줄이는 것은 이 상태 줄뿐이다. 실행·삭제·전송 같은 결과 줄은 되풀이돼도 사실이고,
+ * 사람이 기록을 여는 이유가 대개 그 줄이다. 하루 단위로 세는 것은 화면이 하루로 묶여 있어서다.
+ */
+internal fun squelch(lines: List<String>): List<String> {
+    val said = HashSet<String>()
+    return lines.filter { line ->
+        val body = line.substringAfter("  ")
+        // 1. 결과 줄은 그대로 통과
+        if (!body.isEngineStatus()) return@filter true
+        // 2. 같은 날 같은 말을 이미 했으면 한 번으로 충분하다 (add 는 처음일 때만 true)
+        said.add(line.take(5) + "|" + body)
+    }
 }
 
 /**
- * 같은 말이 잇달아 나오면 한 줄로 줄인다.
- *
- * 엔진이 재바인딩될 때마다 「엔진 시작 …」과 「블루투스 · 지금 붙어 있는 …」이 함께 찍히는데,
- * 32초에 네 번씩 쌓이면 정작 찾으려던 두 줄을 덮는다.
+ * 엔진이 붙을 때마다 찍히는 상태 줄인지.
+ * 새 소식이 아니라 「지금도 이렇다」는 확인이라, 같은 날 두 번 읽을 값이 없다.
  */
-private fun squelch(lines: List<String>): List<String> {
-    var lastBody = ""
-    return lines.filter { line ->
-        val body = line.substringAfter("  ")
-        val repeat = body == lastBody
-        lastBody = body
-        !repeat
-    }
-}
+internal fun String.isEngineStatus(): Boolean =
+    startsWith("엔진 시작 ·") ||
+        startsWith("블루투스 · 지금 붙어 있는 기기") ||
+        startsWith("업데이트 확인 ·")
 
 /** 기호를 말로 바꾼다. 화면에는 ▶ 가 빠르고, 소리로는 「실행」이 맞다 */
 private fun String.spoken(): String = this
